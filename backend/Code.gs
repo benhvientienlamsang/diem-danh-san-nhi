@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.4' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.6.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -345,7 +345,6 @@ function verify_(d, c, date, mode, kindLabel, site) {
 
   // Khuôn mặt: khớp với chính SV và SV phải là người gần nhất (so 1:N)
   if (!validDesc_(d.descriptor)) return { err: 'Không đọc được khuôn mặt.' };
-  if (!d.liveness) return { err: 'Chưa vượt qua kiểm tra người thật (nhắm mở mắt).' };
   if (Number(d.faceCount) !== 1) return { err: 'Khung hình phải có đúng 1 khuôn mặt.' };
   var own = euclid_(d.descriptor, st.desc);
   var nearestOther = 9, nearestId = '';
@@ -406,7 +405,7 @@ function apiCheckin_(d) {
     }
     var note = String(d.note || '').substr(0, 500);
     sheet_(SH.DD).appendRow([date, timeStr, mssv, st.name, st.group, status, lateMin, Math.round(v.dist), Math.round(v.acc),
-      v.lat, v.lng, Math.round(v.own * 1000) / 1000, 'Đạt (nhắm mở mắt)', note,
+      v.lat, v.lng, Math.round(v.own * 1000) / 1000, (d.liveness ? 'Đạt (nhắm mở mắt)' : 'Quét khuôn mặt, không nhắm mắt'), note,
       '=HYPERLINK("' + file.getUrl() + '";"Xem ảnh")', '', 0, 0, d.platform || '', d.deviceId || '', file.getId(), site.code]);
     setLive_(mssv, st.name, date, { state: 'TRONG', dist: Math.round(v.dist), acc: Math.round(v.acc), last: now.getTime(),
       outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: v.lat, lng: v.lng, flags: '' });
@@ -1333,7 +1332,6 @@ function apiRebind_(d) {
   if (!d.deviceId) return { ok: false, msg: 'Không đọc được mã thiết bị.' };
   if (d.platform !== 'android' && d.platform !== 'ios-web') return { ok: false, msg: 'Thiết bị không hợp lệ.' };
   if (!validDesc_(d.descriptor) || Number(d.faceCount) !== 1) return { ok: false, msg: 'Không đọc được khuôn mặt, thử lại.' };
-  if (!d.liveness) return { ok: false, msg: 'Chưa vượt qua kiểm tra người thật (nhắm mở mắt).' };
   var all = allStudents_();
   var own = euclid_(d.descriptor, st.desc), nearestOther = 9, nearestId = '';
   for (var i = 0; i < all.length; i++) {

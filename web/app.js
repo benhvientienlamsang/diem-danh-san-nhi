@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.5.3';
+  const VERSION = '1.6.0';
 
   const S = {
     session: load('dd_session'),
@@ -139,7 +139,7 @@
   function renderSites() {
     const card = $('cardSite'); if (!card) return;
     const list = siteList(), ci = S.today && S.today.checkin;
-    card.hidden = !!ci || list.length < 2;
+    card.hidden = true; // bệnh viện đã chọn ở màn hình đăng nhập
     if (card.hidden) return;
     $('siteList').innerHTML = list.map(x => {
       const d = S.loc ? Math.round(haversine(S.loc.lat, S.loc.lng, x.lat, x.lng)) : null;
@@ -298,7 +298,7 @@
     if (S.session.changeDevice) {
       $('rebindTitle').textContent = 'Xác minh khuôn mặt';
       $('rebindBody').innerHTML = '<p>Tài khoản này đang gắn với điện thoại cũ. Quét khuôn mặt để xác minh đúng là bạn, app sẽ chuyển tài khoản sang điện thoại này.</p>' +
-        '<ul class="dash"><li>Đứng nơi đủ sáng, nhìn thẳng camera, khi được nhắc thì nhắm mắt rồi mở ra.</li><li>Điện thoại cũ sẽ không dùng được nữa. Lần đổi máy được ghi vào báo cáo gửi giảng viên.</li></ul>';
+        '<ul class="dash"><li>Đứng nơi đủ sáng, nhìn thẳng camera, giữ yên khoảng 2 giây.</li><li>Điện thoại cũ sẽ không dùng được nữa. Lần đổi máy được ghi vào báo cáo gửi giảng viên.</li></ul>';
       $('btnRebind').hidden = false;
     } else {
       $('rebindTitle').textContent = 'Điện thoại chưa được cấp phép';
@@ -317,13 +317,13 @@
     if (S.busy) return;
     S.busy = true; setMsg('rebindMsg', '');
     try {
-      const f = await scanFace({ title: 'Xác minh đổi điện thoại', samples: 2 });
+      const f = await scanFace({ title: 'Xác minh đổi điện thoại', samples: 3, blink: false });
       if (!f) return;
       const t = vn();
       const photo = stamp(f.canvas, ['XÁC MINH ĐỔI ĐIỆN THOẠI', S.student.name + ' · ' + S.student.mssv, t.dmy + ' ' + t.hms + ' (GMT+7)']);
       setMsg('rebindMsg', 'Đang gửi…', true);
       const r = await api('rebind', { mssv: S.session.mssv, fullName: S.session.fullName, classCode: S.session.classCode,
-        descriptor: f.descriptor, faceCount: 1, liveness: true, photo });
+        descriptor: f.descriptor, faceCount: 1, liveness: false, photo });
       if (!r.ok) { setMsg('rebindMsg', r.msg); return; }
       S.session.changeDevice = false; save('dd_session', S.session);
       S.student = r.student; S.today = r.today; S.slots = r.today.slots || [];
@@ -673,7 +673,7 @@
       if (kind === 'confirm') { const o = slotNow().find(s => s.status === 'open'); if (!o) throw new Error('Hiện không trong khung giờ xác nhận.'); slot = o.time; }
 
       for (;;) {
-        const f = await scanFace({ title: kind === 'checkin' ? 'Điểm danh' : kind === 'answer' ? 'Xác nhận cho giảng viên' : 'Xác nhận mốc ' + slot, samples: 2 });
+        const f = await scanFace({ title: kind === 'checkin' ? 'Điểm danh' : kind === 'answer' ? 'Xác nhận cho giảng viên' : 'Xác nhận mốc ' + slot, samples: 3, blink: false });
         if (!f) return;
         const l = S.loc && S.loc.t > Date.now() - 30000 && S.loc.acc <= fix.acc + 5 ? S.loc : fix;
         const t = vn();
@@ -687,7 +687,7 @@
           (note ? 'Ghi chú: ' + note + '. ' : '') + 'Giờ chính thức là giờ máy chủ nhận được ảnh.',
           async () => {
             const r = await api(kind, { id: req && req.id, mssv: S.session.mssv, lat: l.lat, lng: l.lng, acc: l.acc, simulated: !!(l.simulated || fix.simulated),
-              identicalSamples: fix.identicalSamples, antiFake: af, site: S.siteCode, descriptor: f.descriptor, faceCount: 1, liveness: true, photo, note });
+              identicalSamples: fix.identicalSamples, antiFake: af, site: S.siteCode, descriptor: f.descriptor, faceCount: 1, liveness: false, photo, note });
             if (!r.ok) throw new Error(r.msg);
             return r;
           });

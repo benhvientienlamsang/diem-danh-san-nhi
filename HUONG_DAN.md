@@ -16,7 +16,7 @@ Mọi quyết định (đúng giờ hay trễ, trong hay ngoài vùng, khuôn m�
 
 ### Quy trình của sinh viên mỗi ngày
 
-- Trước 07:00: đến bệnh viện, mở app, đứng trong bán kính 20 m, ghi chú (nếu có), quét khuôn mặt (nhìn thẳng, nhắm mắt rồi mở mắt), xem lại ảnh có đóng dấu giờ, bấm Gửi. Sau 07:00 vẫn điểm danh được nhưng ghi “Trễ x phút”. Sau 11:00 không nhận điểm danh.
+- Trước 07:00: đến bệnh viện, mở app, đứng trong bán kính 20 m, ghi chú (nếu có), quét khuôn mặt (nhìn thẳng, giữ yên khoảng 2 giây), xem lại ảnh có đóng dấu giờ, bấm Gửi. Sau 07:00 vẫn điểm danh được nhưng ghi “Trễ x phút”. Sau 11:00 không nhận điểm danh.
 - Từ lúc điểm danh đến 11:00: app ghi nhận vị trí. Ra xa quá 60 m bị ghi “Rời vùng”, quay lại bị ghi “Quay lại” kèm số phút ở ngoài.
 - Từ 07:00 đến 11:00 app tự động gửi vị trí, sinh viên không phải thao tác. Rời vùng chỉ tính trong khung giờ này.
 - Tùy chọn: điền các mốc vào `XAC_NHAN_GIUA_CA` (ví dụ 08:30,09:30,10:30) nếu muốn sinh viên quét khuôn mặt giữa ca. Mặc định tắt. Giảng viên vẫn có thể gửi “Yêu cầu xác nhận có mặt” đột xuất cho sinh viên được chọn.
@@ -27,7 +27,7 @@ Mọi quyết định (đúng giờ hay trễ, trong hay ngoài vùng, khuôn m�
 | Gian lận | Cách chặn |
 |---|---|
 | Điểm danh hộ | Nhận diện khuôn mặt, so với chính SV và so với toàn bộ SV khác (người gần nhất phải là chính SV đó). Mỗi SV khóa 1 điện thoại, mỗi điện thoại chỉ điểm danh cho 1 SV mỗi ngày |
-| Dùng ảnh chụp khuôn mặt | Bắt nhắm mở mắt, khuôn mặt trước và sau khi chớp phải trùng nhau |
+| Dùng ảnh chụp khuôn mặt | Ảnh điểm danh có đóng dấu giờ lưu trên Drive để đối chiếu. Đã bỏ bước nhắm mở mắt cho nhanh, nên không chặn tự động việc giơ ảnh chụp |
 | Fake GPS trên Android | Chặn khi vị trí có cờ mô phỏng, khi có app đang được chọn làm “Ứng dụng vị trí mô phỏng”, khi máy có cài app có quyền giả lập vị trí. Kiểm tra lại mỗi 5 phút trong ca |
 | Fake GPS trên iPhone | Không có cách phát hiện trực tiếp (xem mục 8). Máy chủ ghi “Nghi giả lập” khi các lần đọc GPS giống hệt nhau hoặc vị trí nhảy xa bất thường |
 | Bật/tắt app để trốn theo dõi (Android) | Không nhận vị trí quá 10 phút thì ghi “Mất tín hiệu” |
@@ -78,7 +78,7 @@ Sheet **CoSo** (tạo khi chạy hàm `setup`) liệt kê các bệnh viện th�
 - **Đăng ký lần đầu** (3 bước trên app): nhập họ và tên có dấu, MSSV, tích chọn mã lớp, đọc quy định, quét khuôn mặt. Khi quét xong, máy chủ tự thêm sinh viên vào sheet **SinhVien** (cột Ghi chú ghi “Tự đăng ký qua app”).
 - Màn hình đăng nhập: sinh viên **chọn bệnh viện điểm danh** trước (tiêu đề app đổi theo bệnh viện), rồi nhập họ tên, MSSV, tích chọn mã lớp.
 - Cài lại app trên cùng điện thoại: nhập đúng họ tên, MSSV, mã lớp cũ.
-- **Đổi điện thoại mới**: sinh viên tích ô **“Tôi đã đổi sang điện thoại mới”** khi đăng nhập, sau đó quét khuôn mặt (có nhắm mở mắt). Khuôn mặt khớp với khuôn mặt đã đăng ký thì tài khoản chuyển sang máy mới, máy cũ không dùng được nữa. Sự kiện “Đổi điện thoại” (kèm ảnh xác minh trong thư mục Drive `Anh doi thiet bi`) được ghi vào sheet SuKienViTri và báo cáo. Khuôn mặt không khớp thì bị từ chối và ghi “Đổi điện thoại thất bại”. Giảng viên vẫn có thể xóa thiết bị bằng menu BV TLS > Xóa thiết bị SV nếu cần.
+- **Đổi điện thoại mới**: sinh viên tích ô **“Tôi đã đổi sang điện thoại mới”** khi đăng nhập, sau đó quét khuôn mặt. Khuôn mặt khớp với khuôn mặt đã đăng ký thì tài khoản chuyển sang máy mới, máy cũ không dùng được nữa. Sự kiện “Đổi điện thoại” (kèm ảnh xác minh trong thư mục Drive `Anh doi thiet bi`) được ghi vào sheet SuKienViTri và báo cáo. Khuôn mặt không khớp thì bị từ chối và ghi “Đổi điện thoại thất bại”. Giảng viên vẫn có thể xóa thiết bị bằng menu BV TLS > Xóa thiết bị SV nếu cần.
 - Muốn chỉ cho sinh viên có sẵn trong danh sách: đặt `CHO_SV_TU_DANG_KY` = FALSE và nhập trước danh sách vào sheet SinhVien (cột A MSSV, B Họ tên, C Nhóm/Lớp).
 - Một MSSV chỉ đăng ký được một lần, một khuôn mặt chỉ gắn với một MSSV, một điện thoại chỉ gắn với một sinh viên. Sai sót thì dùng menu **BV TLS > Xóa khuôn mặt SV** hoặc xóa dòng của sinh viên đó.
 
@@ -149,7 +149,7 @@ Sửa cấu hình trực tiếp trong Sheet có hiệu lực ngay, chậm nhất
 - **iPhone không chạy nền được.** Apple không cho trang web lấy vị trí khi đã thoát hoặc khóa màn hình. Vì vậy SV dùng iPhone chỉ bị theo dõi khi đang mở app, việc có mặt được kiểm soát bằng 3 mốc xác nhận khuôn mặt. Muốn theo dõi nền trên iPhone phải làm app iOS gốc và phát hành qua App Store hoặc TestFlight (cần tài khoản Apple Developer).
 - **Fake GPS trên iPhone** cần bẻ khóa máy hoặc thiết bị giả lập gắn ngoài. Trang web không phát hiện trực tiếp được, chỉ có các dấu hiệu nghi ngờ ghi trong báo cáo.
 - **Android đã root** có công cụ che giấu được việc giả lập. App ghi nhận dấu hiệu root vào báo cáo, có thể bật `CHAN_MAY_ROOT`.
-- **Nhận diện khuôn mặt** chạy ngay trên điện thoại, bước nhắm mở mắt chặn được ảnh chụp tĩnh nhưng không chặn tuyệt đối video quay sẵn. Ảnh điểm danh lưu trên Drive để đối chiếu khi nghi ngờ.
+- **Nhận diện khuôn mặt** chạy ngay trên điện thoại và không còn bước nhắm mở mắt, nên không tự chặn được việc giơ ảnh hoặc video của người khác trước camera. Ảnh điểm danh lưu trên Drive để giảng viên đối chiếu khi nghi ngờ. Ảnh điểm danh lưu trên Drive để đối chiếu khi nghi ngờ.
 - **Sức chứa**: Apps Script xử lý tối đa khoảng 30 yêu cầu cùng lúc. Với nhóm khoảng 100 SV hoạt động ổn, nếu SV dồn điểm danh cùng một phút có thể phải bấm Gửi lại.
 - **Dữ liệu sinh trắc học**: ảnh và đặc trưng khuôn mặt là dữ liệu cá nhân nhạy cảm theo Nghị định 13/2023/NĐ-CP và Luật Bảo vệ dữ liệu cá nhân. App đã có màn hình SV đồng ý, nhưng nên có thông báo chính thức của Trường về mục đích thu thập, thời hạn lưu và người được xem dữ liệu. Anh nên trao đổi thêm với bộ phận pháp chế.
 

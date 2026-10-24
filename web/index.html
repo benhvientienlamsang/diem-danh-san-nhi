@@ -79,7 +79,7 @@
         <h2>Quy định và đồng ý</h2>
         <p><b class="js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</b></p>
         <ul class="dash">
-          <li>Điểm danh tại <b class="js-hospital">Bệnh viện Sản Nhi Kiên Giang</b>, trong bán kính <b class="js-r1">20</b> m, trước <b class="js-deadline">07:00</b> mới tính đúng giờ.</li>
+          <li>Điểm danh tại <b class="js-hospital">Bệnh viện Sản Nhi Kiên Giang</b>, trong bán kính <b class="js-r1">20</b> m. Điểm danh sau <b class="js-deadline">07:00</b> bắt buộc ghi chú giải thích lý do.</li>
           <li>Từ lúc điểm danh đến <b class="js-end">11:00</b>, ứng dụng ghi nhận vị trí. Ra xa quá <b class="js-r2">60</b> m sẽ bị ghi “rời vùng” vào báo cáo.</li>
           <li>Trong ca có các mốc xác nhận khuôn mặt <b class="js-slots">08:30, 09:30, 10:30</b>, mỗi mốc mở <b class="js-win">15</b> phút.</li>
           <li>Ứng dụng giả lập vị trí (fake GPS) bị chặn và ghi nhận vi phạm.</li>
@@ -148,12 +148,12 @@
 
       <div class="card" id="cardCheckin" hidden>
         <h3>Điểm danh hôm nay</h3>
-        <label>Ghi chú (không bắt buộc)
-          <textarea id="inNote" rows="2" maxlength="500" placeholder="Ví dụ: trực đêm qua, đổi khoa, đến trễ do…"></textarea>
+        <label><span id="noteLabel">Ghi chú (không bắt buộc)</span>
+          <textarea id="inNote" rows="2" maxlength="500" placeholder="Ví dụ: trực đêm qua, đổi khoa, đến muộn do…"></textarea>
         </label>
         <p class="form-msg" id="checkinMsg"></p>
         <button class="btn big" id="btnCheckin">Quét khuôn mặt và điểm danh</button>
-        <p class="hint">Phải ở trong bán kính <b class="js-r1">20</b> m. Điểm danh trước <b class="js-deadline">07:00</b> được tính đúng giờ.</p>
+        <p class="hint">Phải ở trong bán kính <b class="js-r1">20</b> m quanh bệnh viện.</p>
       </div>
 
       <div class="card done" id="cardDone" hidden>
@@ -223,6 +223,7 @@
   <footer class="foot">
     <span>Từ BV TLS</span><span class="sep">·</span><span>by Dr Huy - BV TLS</span>
     <span class="ver" id="ver"></span>
+    <button class="link-btn" id="btnLogout" hidden>Đăng xuất</button>
   </footer>
 
   <canvas id="work" hidden></canvas>

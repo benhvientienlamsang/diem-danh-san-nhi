@@ -1,5 +1,5 @@
 /* Điểm danh – Từ BV TLS – by Dr Huy - BV TLS */
-const CACHE = 'diemdanh-v1.1.1';
+const CACHE = 'diemdanh-v1.1.3';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest',
   './lib/face-api.js', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './models/tiny_face_detector_model-weights_manifest.json', './models/tiny_face_detector_model.bin',

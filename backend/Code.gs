@@ -11,7 +11,7 @@
  *  - Lưu ảnh và báo cáo PDF kèm hình vào thư mục Google Drive
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.1.1' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.1.3' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -329,11 +329,14 @@ function apiCheckin_(d) {
   if (nowMin >= hhmm_(c.GIO_KET_THUC_THEO_DOI)) return { ok: false, msg: 'Đã hết ca (' + c.GIO_KET_THUC_THEO_DOI + '), không nhận điểm danh.' };
   if (findCheckin_(date, normId_(d.mssv))) return { ok: false, msg: 'Hôm nay bạn đã điểm danh rồi.' };
 
+  var deadline = deadlineDate_(now, c.GIO_HAN_DIEM_DANH).getTime();
+  if (now.getTime() >= deadline && String(d.note || '').trim().length < 10) {
+    return { ok: false, msg: 'Sau ' + c.GIO_HAN_DIEM_DANH + ' phải ghi chú giải thích lý do (ít nhất 10 ký tự) rồi mới điểm danh.' };
+  }
   var v = verify_(d, c, date, num_(c.BAN_KINH_DIEM_DANH_M), 'Điểm danh');
   if (v.err) return { ok: false, msg: v.err };
   var st = v.st, mssv = v.mssv;
 
-  var deadline = deadlineDate_(now, c.GIO_HAN_DIEM_DANH).getTime();
   var onTime = now.getTime() < deadline;
   var lateMin = onTime ? 0 : Math.max(1, Math.ceil((now.getTime() - deadline) / 60000));
   var status = onTime ? 'Đúng giờ' : 'Trễ';

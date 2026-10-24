@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.3';
 
   const S = {
     session: load('dd_session'),
@@ -168,6 +168,7 @@
 
   function route() {
     const st = S.student;
+    $('btnLogout').hidden = false;
     if (!st.deviceMatch) {
       fail('Điện thoại chưa được cấp phép', 'MSSV ' + st.mssv + ' đã gắn với một điện thoại khác. Mỗi sinh viên chỉ dùng 1 điện thoại. Liên hệ quản trị BV TLS nếu bạn đổi máy.');
       return;
@@ -252,13 +253,13 @@
     else if (m >= end) { txt = 'Đã hết ca ' + S.cfg.endTime + '. Ứng dụng không còn theo dõi vị trí.'; }
     else if (ci) { const left = Math.ceil(end - m); txt = 'Đang trong ca. Kết thúc lúc ' + S.cfg.endTime + ', còn ' + Math.floor(left / 60) + ' giờ ' + (left % 60) + ' phút. Ở trong bán kính ' + S.cfg.leaveRadius + ' m.'; }
     else if (m < open) txt = 'Mở điểm danh lúc ' + S.cfg.openTime + '.';
-    else if (m < dead) {
-      const sec = Math.max(0, Math.round((dead - m) * 60));
-      txt = 'Còn ' + Math.floor(sec / 60) + ' phút ' + String(sec % 60).padStart(2, '0') + ' giây đến hạn ' + S.cfg.deadline + '.';
-      cls = sec < 600 ? 'warn' : '';
-    } else { txt = 'Đã quá ' + S.cfg.deadline + '. Điểm danh bây giờ sẽ tính TRỄ.'; cls = 'bad'; }
+    else if (m < dead) txt = 'Đang mở điểm danh.';
+    else { txt = 'Sau ' + S.cfg.deadline + ': bắt buộc ghi chú giải thích lý do trước khi điểm danh.'; cls = 'warn'; }
     dl.textContent = txt; dl.className = 'deadline ' + cls;
     $('btnCheckin').disabled = !isSchoolDay() || m < open || m >= end || S.busy;
+    const needNote = !ci && m >= dead;
+    $('noteLabel').textContent = needNote ? 'Ghi chú giải thích lý do (bắt buộc sau ' + S.cfg.deadline + ')' : 'Ghi chú (không bắt buộc)';
+    $('btnLogout').hidden = !S.session;
     if (ci && S.tracking && m >= end) stopTracking('Đã hết ca ' + S.cfg.endTime + ', ứng dụng ngừng theo dõi vị trí.');
     renderSlots(true);
   }
@@ -477,6 +478,23 @@
     } catch (e) {}
   }
 
+  /* ---------- đăng xuất ---------- */
+  $('btnLogout').addEventListener('click', async () => {
+    if (S.tracking && S.today && S.today.checkin && !shiftOver()) {
+      toast('Đang trong ca (đến ' + S.cfg.endTime + '), không đăng xuất được. Sau ' + S.cfg.endTime + ' mới đăng xuất.', 5000);
+      return;
+    }
+    if (!confirmBox('Đăng xuất khỏi ứng dụng? Bạn sẽ phải nhập lại MSSV và mã lớp.')) return;
+    await stopTracking('');
+    try { localStorage.removeItem('dd_session'); Object.keys(localStorage).filter(k => k.indexOf('dd_photo_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+    S.session = null; S.student = null; S.today = null; S.slots = [];
+    $('inMssv').value = ''; $('inClass').value = ''; $('inNote').value = ''; setMsg('loginMsg', '');
+    $('cbConsent').checked = false; $('btnConsent').disabled = true;
+    $('btnLogout').hidden = true;
+    show('scr-login');
+  });
+  function confirmBox(msg) { try { return window.confirm(msg); } catch (e) { return true; } }
+
   $('btnRefreshLoc').addEventListener('click', async () => {
     if (shiftOver()) { toast('Đã hết ca, ứng dụng không định vị.'); return; }
     S.samples = []; await Loc.stop(); await Loc.start(S.tracking && NATIVE); toast('Đang định vị lại…');
@@ -491,6 +509,11 @@
     if (S.busy) return;
     const msgId = kind === 'checkin' ? 'checkinMsg' : 'confirmMsg';
     const radius = kind === 'checkin' ? S.cfg.checkinRadius : S.cfg.leaveRadius;
+    if (kind === 'checkin' && vn().min >= hhmm(S.cfg.deadline) && $('inNote').value.trim().length < 10) {
+      setMsg(msgId, 'Sau ' + S.cfg.deadline + ' phải ghi chú giải thích lý do (ít nhất 10 ký tự) rồi mới điểm danh.');
+      $('inNote').focus();
+      return;
+    }
     S.busy = true; setMsg(msgId, 'Đang kiểm tra vị trí…', true);
     try {
       const af = await antiFake(true);

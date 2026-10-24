@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
 
   const S = {
     session: load('dd_session'),
@@ -200,11 +200,11 @@
     if (S.busy) return;
     S.busy = true; setMsg('enrollMsg', '');
     try {
-      const f = await scanFace({ title: 'Đăng ký khuôn mặt', samples: 4 });
+      const f = await scanFace({ title: 'Đăng ký khuôn mặt', samples: 4, blink: false });
       if (!f) return;
       const photo = stamp(f.canvas, ['ĐĂNG KÝ KHUÔN MẶT', S.student.name + ' · ' + S.student.mssv, vn().dmy + ' ' + vn().hms + ' (GMT+7)']);
       setMsg('enrollMsg', 'Đang gửi…', true);
-      const r = await api('enroll', { mssv: S.session.mssv, classCode: S.session.classCode, descriptors: f.descriptors, liveness: true, photo });
+      const r = await api('enroll', { mssv: S.session.mssv, classCode: S.session.classCode, descriptors: f.descriptors, liveness: false, photo });
       if (!r.ok) { setMsg('enrollMsg', r.msg); return; }
       toast(r.msg); S.student.enrolled = true; route();
     } catch (e) { setMsg('enrollMsg', e.message || String(e)); }
@@ -579,10 +579,11 @@
   const mean = arr => arr[0].map((_, i) => arr.reduce((s, a) => s + a[i], 0) / arr.length);
 
   /**
-   * Quét khuôn mặt có kiểm tra người thật (nhắm mở mắt).
+   * Quét khuôn mặt. blink = true: kiểm tra người thật bằng nhắm mở mắt (dùng khi điểm danh, xác nhận).
+   * blink = false: chỉ chụp nhiều mẫu khuôn mặt ổn định (dùng khi đăng ký).
    * Trả { descriptors, descriptor, canvas } hoặc null nếu người dùng đóng camera.
    */
-  async function scanFace({ title, samples }) {
+  async function scanFace({ title, samples, blink = true }) {
     const video = $('video'), step = $('camStep'), bar = $('camProgress'), oval = $('oval');
     $('camTitle').textContent = title; step.textContent = 'Đang mở camera…'; bar.style.width = '0%'; oval.className = 'oval';
     $('cam').hidden = false;
@@ -642,15 +643,18 @@
               canvas = document.createElement('canvas'); canvas.width = vw; canvas.height = vh;
               canvas.getContext('2d').drawImage(video, 0, 0, vw, vh); canvas.score = r.detection.score;
             }
-            say('Giữ yên, nhìn thẳng camera…', 'ok', Math.round(50 * descs.length / samples));
-            if (descs.length >= samples && base.length >= 3) { phase = 'close'; phaseAt = Date.now(); say('Nhắm mắt lại', 'ok', 60); }
+            say('Giữ yên, nhìn thẳng camera…', 'ok', Math.round((blink ? 50 : 95) * descs.length / samples));
+            if (descs.length >= samples && base.length >= 3) {
+              if (!blink) { say('Hoàn tất', 'ok', 100); end({ descriptors: descs, descriptor: mean(descs), canvas }); return; }
+              phase = 'close'; phaseAt = Date.now(); say('Nhắm mắt lại', 'ok', 60);
+            }
           } else if (phase === 'close') {
             const b = base.reduce((s, x) => s + x, 0) / base.length;
-            if (e < b * 0.72) { closed = true; phase = 'open'; phaseAt = Date.now(); say('Mở mắt ra', 'ok', 80); }
-            else if (Date.now() - phaseAt > 12000) { phaseAt = Date.now(); say('Nhắm hẳn mắt khoảng 1 giây', 'bad', 60); }
+            if (e < b * 0.78 || e < 0.18) { closed = true; phase = 'open'; phaseAt = Date.now(); say('Mở mắt ra', 'ok', 80); }
+            else if (Date.now() - phaseAt > 6000) { phaseAt = Date.now(); say('Nhắm hẳn mắt khoảng 1 giây', 'bad', 60); }
           } else if (phase === 'open') {
             const b = base.reduce((s, x) => s + x, 0) / base.length;
-            if (e > b * 0.85) { phase = 'verify'; say('Đang xác minh…', 'ok', 90); }
+            if (e > b * 0.82) { phase = 'verify'; say('Đang xác minh…', 'ok', 90); }
             else if (Date.now() - phaseAt > 8000) restart('Mở mắt và làm lại từ đầu');
           } else if (phase === 'verify') {
             const d = Array.from(r.descriptor);

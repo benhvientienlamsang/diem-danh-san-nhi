@@ -11,7 +11,7 @@
  *  - Lưu ảnh và báo cáo PDF kèm hình vào thư mục Google Drive
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.1.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.1.1' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -223,7 +223,6 @@ function apiEnroll_(d) {
     for (var a = 0; a < samples.length; a++) for (var b = a + 1; b < samples.length; b++) {
       if (euclid_(samples[a], samples[b]) > 0.45) return { ok: false, msg: 'Các mẫu khuôn mặt không ổn định. Giữ yên điện thoại, đủ sáng và thử lại.' };
     }
-    if (!d.liveness) return { ok: false, msg: 'Chưa vượt qua kiểm tra người thật (nhắm mở mắt).' };
     var mean = meanDesc_(samples);
     var all = allStudents_();
     var lockDevice = bool_(c.KHOA_1_THIET_BI);

@@ -31,21 +31,36 @@ jobs:
       - name: Chép web vào app Android
         run: npx cap sync android
 
-      - name: Lấy khóa ký app từ Secrets
+      - name: Lấy và kiểm tra khóa ký app
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/app/release.jks; echo "Ký bằng khóa BV TLS"; else echo "Chưa có khóa, ký bằng khóa debug"; fi
+          clean() { printf '%s' "$1" | tr -d '\r\n' | sed 's/^[[:space:]=]*//; s/[[:space:]]*$//'; }
+          if [ -z "$KS" ]; then echo "::error::Chưa có secret ANDROID_KEYSTORE_BASE64"; exit 1; fi
+          if ! printf '%s' "$KS" | tr -d '[:space:]' | base64 -d > android/app/release.jks 2>/dev/null; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 không đúng. Dán lại TOÀN BỘ nội dung file ANDROID_KEYSTORE_BASE64.txt"; exit 1; fi
+          # Khóa BV TLS được tạo với mật khẩu khóa = mật khẩu kho, nên chỉ cần 1 mật khẩu
+          PW=$(clean "$KSP"); AL=$(clean "$KA"); KPW="$PW"
+          [ -z "$AL" ] && AL=bvtls
+          echo "::add-mask::$PW"
+          if ! keytool -list -keystore android/app/release.jks -storepass "$PW" > /dev/null 2>&1; then
+            echo "::error::Secret ANDROID_KEYSTORE_PASSWORD sai, hoặc ANDROID_KEYSTORE_BASE64 bị thiếu ký tự. Dán lại mật khẩu trong DOC_KY.txt (chỉ phần sau dấu =, không có khoảng trắng)"; exit 1; fi
+          if ! keytool -list -keystore android/app/release.jks -storepass "$PW" -alias "$AL" > /dev/null 2>&1; then
+            echo "::error::Secret ANDROID_KEY_ALIAS sai, phải là: bvtls"; exit 1; fi
+          {
+            echo "KEYSTORE_PASSWORD=$PW"
+            echo "KEY_ALIAS=$AL"
+            echo "KEY_PASSWORD=$KPW"
+          } >> "$GITHUB_ENV"
+          echo "::notice::Khóa ký app BV TLS hợp lệ"
 
       - name: Build APK
         working-directory: android
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease
+          ./gradlew --no-daemon assembleRelease || { echo "::error::Build APK lỗi, xem log bước Build APK"; exit 1; }
           mkdir -p ../dist
           cp app/build/outputs/apk/release/app-release.apk ../dist/DiemDanh-BVTLS.apk
 

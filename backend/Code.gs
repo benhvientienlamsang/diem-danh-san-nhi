@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.6.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.7.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -47,7 +47,8 @@ var DEFAULT_CONFIG = [
   ['GUI_EMAIL_BAO_CAO', 'TRUE', 'TRUE: gửi kèm PDF báo cáo qua email'],
   ['EMAIL_NHAN_BAO_CAO', '', 'Email nhận báo cáo, để trống = email chủ sở hữu script. Nhiều email cách nhau dấu phẩy'],
   ['CANH_BAO_EMAIL_KHI_ROI_VUNG', 'FALSE', 'TRUE: gửi email ngay khi SV rời vùng'],
-  ['THU_MUC_GOC_ID', '', 'ID thư mục Google Drive lưu ảnh và báo cáo. Để trống = tự tạo']
+  ['THU_MUC_GOC_ID', '', 'ID thư mục Google Drive lưu ảnh và báo cáo. Để trống = tự tạo'],
+  ['LUU_TRU_NGAY', '30', 'Mỗi tối (khoảng 19:30) chuyển dữ liệu cũ hơn số ngày này sang file lưu trữ trên Drive để máy chủ chạy nhanh. Tối thiểu 7. Ghi 0 = tắt']
 ];
 
 /* ============================ MENU & CÀI ĐẶT ============================ */
@@ -61,15 +62,46 @@ function onOpen() {
     .addSeparator()
     .addItem('Mở thư mục Drive', 'menuOpenFolder')
     .addItem('Kiểm tra danh sách cơ sở', 'menuSites')
+    .addSeparator()
+    .addItem('Làm mới dữ liệu tạm (sau khi xóa/sửa dòng)', 'menuRefresh')
+    .addItem('Lưu trữ dữ liệu cũ ngay', 'menuArchive')
     .addToUi();
 }
 
 function onEdit(e) {
   try {
-    var n = e && e.range && e.range.getSheet().getName();
-    if (n === SH.CFG) CacheService.getScriptCache().remove('cfg');
-    if (n === SH.CS) CacheService.getScriptCache().remove('sites');
+    var sh = e && e.range && e.range.getSheet(), n = sh && sh.getName();
+    var cache = CacheService.getScriptCache();
+    if (n === SH.CFG) cache.remove('cfg');
+    if (n === SH.CS) cache.remove('sites');
+    if (n === SH.SV) dropStudents_();
+    if (n === SH.DD) bumpGen_();
+    if (n === SH.HT) {
+      var ids = sh.getRange(e.range.getRow(), 1, e.range.getNumRows(), 1).getValues();
+      cache.removeAll(ids.map(function (r) { return lvKey_(normId_(r[0])); }));
+    }
   } catch (err) {}
+}
+
+/** Sau khi xóa dòng, sắp xếp hoặc sửa tay dữ liệu: bỏ toàn bộ dữ liệu tạm, máy chủ đọc lại từ sheet. */
+function menuRefresh() {
+  refreshCaches_();
+  SpreadsheetApp.getUi().alert('Đã làm mới dữ liệu tạm. Máy chủ sẽ đọc lại dữ liệu từ các sheet.');
+}
+function refreshCaches_() {
+  bumpGen_();
+  var cache = CacheService.getScriptCache();
+  cache.removeAll(['cfg', 'sites']);
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.HT);
+  if (sh && sh.getLastRow() > 1) {
+    var keys = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(function (r) { return lvKey_(normId_(r[0])); });
+    for (var i = 0; i < keys.length; i += 500) cache.removeAll(keys.slice(i, i + 500));
+  }
+}
+function menuArchive() {
+  var r = archiveOld_(Math.max(7, num_(cfg_().LUU_TRU_NGAY) || 30));
+  SpreadsheetApp.getUi().alert(r ? 'Đã chuyển sang file lưu trữ:\n' + r + '\n\nFile lưu trữ: ' + archiveBook_().getUrl()
+    : 'Không có dữ liệu cũ hơn ' + (num_(cfg_().LUU_TRU_NGAY) || 30) + ' ngày cần chuyển.');
 }
 
 function setup() {
@@ -112,7 +144,7 @@ function setup() {
 
   getRootFolder_();
   installTriggers_();
-  CacheService.getScriptCache().remove('cfg');
+  refreshCaches_();
   ss.toast('Đã cài đặt xong. Nhập danh sách sinh viên vào sheet SinhVien.', 'BV TLS', 8);
 }
 
@@ -143,6 +175,7 @@ function resetCols_(cols, label) {
   var row = sh.getActiveRange().getRow();
   if (row < 2) return;
   cols.forEach(function (c) { sh.getRange(row, c).clearContent(); });
+  dropStudents_();
   SpreadsheetApp.getUi().alert('Đã xóa ' + label + ' của MSSV ' + sh.getRange(row, 1).getValue() + '. Sinh viên có thể đăng ký lại.');
 }
 
@@ -209,7 +242,7 @@ function publicConfig_(c) {
 function apiStatus_(d) {
   var c = cfg_();
   var mssv = normId_(d.mssv);
-  var st = findStudent_(mssv);
+  var st = findStudentLite_(mssv);
   if (!st) {
     // Sinh viên mới: cho đăng ký lần đầu nếu cấu hình cho phép
     var reg = newReg_(c, mssv, d.classCode !== undefined ? d.classCode : d.regCode, d.fullName !== undefined ? d.fullName : d.regName);
@@ -230,7 +263,7 @@ function apiStatus_(d) {
   var ht = findLive_(mssv);
   return {
     ok: true, serverTime: Date.now(), config: publicConfig_(c),
-    student: { mssv: st.mssv, name: st.name, group: st.group, enrolled: !!st.desc,
+    student: { mssv: st.mssv, name: st.name, group: st.group, enrolled: !!st.enrolled,
       deviceMatch: !bool_(c.KHOA_1_THIET_BI) || !st.device || st.device === d.deviceId },
     today: {
       date: date, schoolDay: isSchoolDay_(c, now),
@@ -292,6 +325,7 @@ function apiEnroll_(d) {
     sh.getRange(st.row, 4, 1, 4).setValues([['Đã đăng ký', fmt_(new Date(), 'dd/MM/yyyy HH:mm'),
       photoUrl ? '=HYPERLINK("' + photoUrl + '";"Xem ảnh")' : '', d.deviceId || '']]);
     sh.getRange(st.row, 9).setValue(JSON.stringify(mean.map(function (x) { return Math.round(x * 1e5) / 1e5; })));
+    dropStudents_();
     return { ok: true, msg: 'Đăng ký khuôn mặt thành công.' };
   } finally { lock.releaseLock(); }
 }
@@ -373,7 +407,9 @@ function apiCheckin_(d) {
   var nowMin = minOfDay_(now);
   if (nowMin < hhmm_(c.GIO_MO_DIEM_DANH)) return { ok: false, msg: 'Chưa đến giờ mở điểm danh (' + c.GIO_MO_DIEM_DANH + ').' };
   if (nowMin >= hhmm_(c.GIO_KET_THUC_THEO_DOI)) return { ok: false, msg: 'Đã hết ca (' + c.GIO_KET_THUC_THEO_DOI + '), không nhận điểm danh.' };
-  if (findCheckin_(date, normId_(d.mssv))) return { ok: false, msg: 'Hôm nay bạn đã điểm danh rồi.' };
+  var pre = findCheckin_(date, normId_(d.mssv));
+  if (pre && rowRec_(pre.row, date, normId_(d.mssv))) return { ok: false, msg: 'Hôm nay bạn đã điểm danh rồi.' };
+  if (pre) bumpGen_();   // bộ nhớ đệm lệch với sheet (dòng bị xóa tay): bỏ toàn bộ chỉ mục cũ
 
   var deadline = deadlineDate_(now, c.GIO_HAN_DIEM_DANH).getTime();
   if (now.getTime() >= deadline && String(d.note || '').trim().length < 10) {
@@ -395,25 +431,36 @@ function apiCheckin_(d) {
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  var rec;
   try {
-    if (findCheckin_(date, mssv)) { file.setTrashed(true); return { ok: false, msg: 'Hôm nay bạn đã điểm danh rồi.' }; }
-    var usedBy = deviceUsedToday_(date, d.deviceId, mssv);
-    if (usedBy) {
+    var idx = ddIndexLocked_(date);
+    if (idx.id[mssv] && !rowRec_(idx.id[mssv], date, mssv)) { bumpGen_(); idx = ddIndexLocked_(date); }
+    if (idx.id[mssv]) { file.setTrashed(true); return { ok: false, msg: 'Hôm nay bạn đã điểm danh rồi.' }; }
+    var usedBy = d.deviceId ? idx.dev[String(d.deviceId)] : '';
+    if (usedBy && usedBy !== mssv) {
       file.setTrashed(true);
       log_(date, mssv, st.name, 'THIET_BI_DUNG_CHUNG', '', '', '', '', 'Thiết bị đã điểm danh cho MSSV ' + usedBy);
       return { ok: false, msg: 'Điện thoại này đã dùng để điểm danh cho sinh viên khác hôm nay.' };
     }
     var note = String(d.note || '').substr(0, 500);
-    sheet_(SH.DD).appendRow([date, timeStr, mssv, st.name, st.group, status, lateMin, Math.round(v.dist), Math.round(v.acc),
+    var ddSh = sheet_(SH.DD);
+    ddSh.appendRow([date, timeStr, mssv, st.name, st.group, status, lateMin, Math.round(v.dist), Math.round(v.acc),
       v.lat, v.lng, Math.round(v.own * 1000) / 1000, (d.liveness ? 'Đạt (nhắm mở mắt)' : 'Quét khuôn mặt, không nhắm mắt'), note,
       '=HYPERLINK("' + file.getUrl() + '";"Xem ảnh")', '', 0, 0, d.platform || '', d.deviceId || '', file.getId(), site.code]);
-    setLive_(mssv, st.name, date, { state: 'TRONG', dist: Math.round(v.dist), acc: Math.round(v.acc), last: now.getTime(),
-      outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: v.lat, lng: v.lng, flags: '' });
+    var newRow = ddSh.getLastRow();
+    rec = rowRec_(newRow, date, mssv) || loadCheckins_(date)[mssv] ||
+      { row: newRow, time: timeStr, name: st.name, status: status, late: lateMin, confirms: [], site: site.code };
+    idx.id[mssv] = rec.row;
+    if (d.deviceId) idx.dev[String(d.deviceId)] = mssv;
+    cPut_(ddiKey_(date), idx);
+    cPut_(ciKey_(date, mssv), rec);
+    var old = findLive_(mssv);
+    setLive_(mssv, st.name, date, { row: old ? old.row : 0, state: 'TRONG', dist: Math.round(v.dist), acc: Math.round(v.acc), last: now.getTime(),
+      outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: v.lat, lng: v.lng, flags: '' }, true, true);
     log_(date, mssv, st.name, 'DIEM_DANH', Math.round(v.dist), Math.round(v.acc), v.lat, v.lng,
       status + (lateMin ? ' ' + lateMin + ' phút' : '') + (note ? ' | Ghi chú: ' + note : ''));
-    if (!st.device && d.deviceId) sheet_(SH.SV).getRange(st.row, 7).setValue(d.deviceId);
+    if (!st.device && d.deviceId) { sheet_(SH.SV).getRange(st.row, 7).setValue(d.deviceId); dropStudents_(); }
   } finally { lock.releaseLock(); }
-  var rec = findCheckin_(date, mssv);
   return { ok: true, time: timeStr, date: date, status: status, late: lateMin, dist: Math.round(v.dist), site: site.code,
     slots: slotStatus_(c, now, rec),
     msg: onTime ? 'Điểm danh thành công – đúng giờ.' : 'Điểm danh thành công – trễ ' + lateMin + ' phút.' };
@@ -440,13 +487,14 @@ function apiConfirm_(d) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    rec = findCheckin_(date, mssv);
+    rec = rowRec_(rec.row, date, mssv) || loadCheckins_(date)[mssv] || rec;
     if (rec.confirms.indexOf(slot) >= 0) { file.setTrashed(true); return { ok: false, msg: 'Bạn đã xác nhận mốc ' + slot + ' rồi.' }; }
     var list = rec.confirms.concat([slot]).sort();
     sheet_(SH.DD).getRange(rec.row, 16).setValue(list.join(','));
     log_(date, mssv, v.st.name, 'XAC_NHAN', Math.round(v.dist), Math.round(v.acc), v.lat, v.lng,
       'Mốc ' + slot + ' lúc ' + fmt_(now, 'HH:mm') + ' | ' + file.getUrl());
     rec.confirms = list;
+    cPut_(ciKey_(date, mssv), rec);
   } finally { lock.releaseLock(); }
   return { ok: true, msg: 'Đã xác nhận có mặt mốc ' + slot + '.', slots: slotStatus_(c, now, rec) };
 }
@@ -467,13 +515,14 @@ function apiPingCore_(d) {
   var rec = findCheckin_(date, mssv);
   if (!rec) return { ok: true, track: false, reason: 'Chưa điểm danh hôm nay' };
 
-  var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
+  // Từ 1.7.0: không dùng khóa chung. Mỗi SV chỉ sửa trạng thái của chính mình (1 dòng HienTai, 1 dòng DiemDanh).
+  {
     var live = findLive_(mssv);
     if (!live || live.date !== date) {
-      live = { state: 'TRONG', dist: '', acc: '', last: 0, outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: '', lng: '', flags: '' };
+      live = { row: live ? live.row : 0, fl: 0, sig: '',
+        state: 'TRONG', dist: '', acc: '', last: 0, outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: '', lng: '', flags: '' };
     }
+    var before = { leaves: Number(live.leaves || 0), outMin: Number(live.outMin || 0) };
     var name = rec.name;
     var lat = Number(d.lat), lng = Number(d.lng), acc = Number(d.acc);
     if (!isFinite(lat) || !isFinite(lng)) return { ok: false, msg: 'Thiếu vị trí' };
@@ -538,10 +587,10 @@ function apiPingCore_(d) {
     }
     live.flags = flags;
     setLive_(mssv, name, date, live);
-    updateCheckinStats_(rec.row, live);
+    if (Number(live.leaves || 0) !== before.leaves || Number(live.outMin || 0) !== before.outMin) updateCheckinStats_(rec, date, mssv, live);
     return { ok: true, track: true, state: live.state, dist: Math.round(dist), interval: num_(c.CHU_KY_GUI_VI_TRI_PHUT),
       slots: slotStatus_(c, now, rec) };
-  } finally { lock.releaseLock(); }
+  }
 }
 
 /* ============================ TRIGGER ĐỊNH KỲ ============================ */
@@ -551,34 +600,44 @@ function tick() {
   var now = new Date();
   var date = fmt_(now, 'yyyy-MM-dd');
   var m = minOfDay_(now);
+  if (m >= 19 * 60 + 30 && m < 23 * 60) { try { maybeArchive_(c, now); } catch (e) { console.error(e); } }
   if (!isSchoolDay_(c, now) || m < 300 || m > 20 * 60) return;
   var props = PropertiesService.getScriptProperties();
   var endMin = hhmm_(c.GIO_KET_THUC_THEO_DOI);
   var lostAfter = num_(c.MAT_TIN_HIEU_SAU_PHUT) * 60000;
 
+  // Trạng thái mới nhất nằm trong bộ nhớ đệm (sheet HienTai có thể chậm tối đa 5 phút)
   var sh = sheet_(SH.HT);
-  var vals = sh.getDataRange().getValues();
-  for (var i = 1; i < vals.length; i++) {
-    var r = vals[i];
+  var vals = sh.getDataRange().getValues(), ids = [];
+  for (var i = 1; i < vals.length; i++) if (fmtDateCell_(vals[i][1]) === date) ids.push(normId_(vals[i][0]));
+  var got = {};
+  if (ids.length) got = cGetAll_(ids.map(lvKey_));
+  for (var j = 1; j < vals.length; j++) {
+    var r = vals[j];
     if (fmtDateCell_(r[1]) !== date) continue;
-    var state = r[2];
-    if (state !== 'TRONG' && state !== 'NGOAI') continue;
+    var id = normId_(r[0]);
+    var o = null;
+    if (got[lvKey_(id)]) { try { o = JSON.parse(got[lvKey_(id)]); } catch (e) {} }
+    if (!o || o.date !== date) o = liveFromRow_(r, j + 1);
+    o.row = j + 1;
+    var nm = o.name || String(r[13] || '');
+    if (o.state !== 'TRONG' && o.state !== 'NGOAI') continue;
     if (m >= endMin) {
       // Hết ca: chốt số phút ngoài vùng nếu SV vẫn đang ở ngoài
-      if (state === 'NGOAI' && r[8]) {
+      if (o.state === 'NGOAI' && o.outSince) {
         var endTs = deadlineDate_(now, c.GIO_KET_THUC_THEO_DOI).getTime();
-        var outMin = Number(r[10] || 0) + Math.max(0, Math.round((endTs - Number(r[8])) / 60000));
-        sh.getRange(i + 1, 11).setValue(outMin);
-        var rec = findCheckin_(date, normId_(r[0]));
-        if (rec) sheet_(SH.DD).getRange(rec.row, 18).setValue(outMin);
+        o.outMin = Number(o.outMin || 0) + Math.max(0, Math.round((endTs - Number(o.outSince)) / 60000));
+        var rec = findCheckin_(date, id);
+        if (rec) updateCheckinStats_(rec, date, id, o);
       }
-      sh.getRange(i + 1, 3).setValue('HET_CA');
+      o.state = 'HET_CA';
+      setLive_(id, nm, date, o, true);
       continue;
     }
-    var lost = r[12] === true || r[12] === 'TRUE';
-    if (String(r[11]) === 'android' && !lost && m >= hhmm_(c.GIO_HAN_DIEM_DANH) && now.getTime() - Number(r[5]) > lostAfter) {
-      sh.getRange(i + 1, 13).setValue(true);
-      log_(date, normId_(r[0]), r[13], 'MAT_TIN_HIEU', r[3], r[4], '', '', 'Không nhận vị trí từ ' + fmt_(new Date(Number(r[5])), 'HH:mm') +
+    if (String(o.platform) === 'android' && !o.lost && m >= hhmm_(c.GIO_HAN_DIEM_DANH) && now.getTime() - Number(o.last) > lostAfter) {
+      o.lost = true;
+      setLive_(id, nm, date, o, true);
+      log_(date, id, nm, 'MAT_TIN_HIEU', o.dist, o.acc, '', '', 'Không nhận vị trí từ ' + fmt_(new Date(Number(o.last)), 'HH:mm') +
         ' (tắt GPS, tắt app, hết pin hoặc mất mạng)');
     }
   }
@@ -844,15 +903,121 @@ function findStudent_(mssv) {
   return null;
 }
 
-function findCheckin_(date, mssv) {
-  var vals = sheet_(SH.DD).getDataRange().getValues();
-  for (var i = vals.length - 1; i >= 1; i--) {
-    var r = vals[i];
-    if (fmtDateCell_(r[0]) === date && normId_(r[2]) === mssv) {
-      return { row: i + 1, time: fmtTimeCell_(r[1]), name: r[3], status: r[5], late: r[6], confirms: splitList_(r[15]), site: String(r[21] || '') };
-    }
+/* ============================ BỘ NHỚ ĐỆM (từ 1.7.0) ============================
+ * Giảm đọc/ghi Google Sheet ở các yêu cầu lặp lại (gửi vị trí, hỏi thông báo, màn hình giảng viên).
+ * Sheet luôn là dữ liệu gốc: thiếu bộ nhớ đệm thì đọc lại sheet, mọi lần ghi theo số dòng đều kiểm tra lại dòng.
+ */
+var TTL_ = 21600;                 // 6 giờ, mức tối đa của CacheService
+var FLUSH_MS_ = 5 * 60000;        // vị trí không đổi trạng thái: ghi sheet HienTai tối đa 5 phút/lần
+
+function cache_() { return CacheService.getScriptCache(); }
+function cGet_(k) { try { var v = cache_().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+function cPut_(k, o, ttl) { try { cache_().put(k, JSON.stringify(o), ttl || TTL_); } catch (e) {} }
+function cDel_(k) { try { cache_().remove(k); } catch (e) {} }
+/** Đọc/ghi hàng loạt, chia lô 500 khóa. */
+function cGetAll_(keys) {
+  var out = {};
+  for (var i = 0; i < keys.length; i += 500) {
+    try { var part = cache_().getAll(keys.slice(i, i + 500)) || {}; for (var k in part) out[k] = part[k]; } catch (e) {}
   }
+  return out;
+}
+function cPutAll_(obj, ttl) {
+  var keys = Object.keys(obj);
+  for (var i = 0; i < keys.length; i += 500) {
+    var part = {};
+    keys.slice(i, i + 500).forEach(function (k) { part[k] = obj[k]; });
+    try { cache_().putAll(part, ttl || TTL_); } catch (e) {}
+  }
+}
+
+/** Thế hệ dữ liệu: tăng lên khi sheet bị sửa tay hoặc sau khi lưu trữ, làm mọi chỉ mục cũ hết hiệu lực. */
+function gen_() {
+  var g = null;
+  try { g = cache_().get('gen'); } catch (e) {}
+  if (g) return g;
+  g = PropertiesService.getScriptProperties().getProperty('GEN') || '1';
+  try { cache_().put('gen', g, TTL_); } catch (e) {}
+  return g;
+}
+function bumpGen_() {
+  var p = PropertiesService.getScriptProperties();
+  var g = String((Number(p.getProperty('GEN')) || 1) + 1);
+  p.setProperty('GEN', g);
+  try { cache_().put('gen', g, TTL_); } catch (e) {}
+  return g;
+}
+
+/* ---------- sinh viên (bản gọn, không có đặc trưng khuôn mặt) ---------- */
+function stuKey_() { return 'stu_' + gen_(); }
+function studentsLite_() {
+  var hit = cGet_(stuKey_());
+  if (hit) return hit;
+  var list = allStudents_().map(function (s) {
+    return { row: s.row, mssv: s.mssv, name: s.name, group: s.group, enrolled: !!s.desc, device: s.device };
+  });
+  cPut_(stuKey_(), list);
+  return list;
+}
+function findStudentLite_(mssv) {
+  var all = studentsLite_();
+  for (var i = 0; i < all.length; i++) if (all[i].mssv === mssv) return all[i];
   return null;
+}
+function dropStudents_() { try { cDel_(stuKey_()); } catch (e) {} }
+
+/* ---------- điểm danh trong ngày ---------- */
+function ciKey_(date, mssv) { return 'ci_' + gen_() + '_' + date + '_' + mssv; }
+function ddiKey_(date) { return 'ddi_' + gen_() + '_' + date; }
+function recFromRow_(r, row) {
+  return { row: row, time: fmtTimeCell_(r[1]), name: String(r[3]), status: r[5], late: r[6], confirms: splitList_(r[15]), site: String(r[21] || '') };
+}
+/** Đọc lại đúng 1 dòng DiemDanh và kiểm tra dòng đó còn là của SV này, ngày này. */
+function rowRec_(row, date, mssv) {
+  row = Number(row);
+  if (!(row >= 2)) return null;
+  var sh = sheet_(SH.DD);
+  if (row > sh.getLastRow()) return null;
+  var r = sh.getRange(row, 1, 1, 22).getValues()[0];
+  return fmtDateCell_(r[0]) === date && normId_(r[2]) === mssv ? recFromRow_(r, row) : null;
+}
+/** Đọc toàn bộ lượt điểm danh của ngày và nạp sẵn vào bộ nhớ đệm cho mọi SV. */
+function loadCheckins_(date) {
+  var vals = sheet_(SH.DD).getDataRange().getValues(), map = {}, put = {}, g = gen_();
+  for (var i = 1; i < vals.length; i++) {
+    if (fmtDateCell_(vals[i][0]) !== date) continue;
+    map[normId_(vals[i][2])] = recFromRow_(vals[i], i + 1);
+  }
+  Object.keys(map).forEach(function (id) { put['ci_' + g + '_' + date + '_' + id] = JSON.stringify(map[id]); });
+  cPutAll_(put);
+  return map;
+}
+/** Lượt điểm danh hôm nay của 1 SV (bộ nhớ đệm trước, thiếu mới đọc sheet). */
+function findCheckin_(date, mssv) {
+  var hit = cGet_(ciKey_(date, mssv));
+  if (hit) return hit;
+  var idx = cGet_(ddiKey_(date));
+  if (idx) {
+    if (!idx.id[mssv]) return null;            // chỉ mục chỉ được ghi trong khóa điểm danh nên đáng tin
+    var one = rowRec_(idx.id[mssv], date, mssv);
+    if (one) { cPut_(ciKey_(date, mssv), one); return one; }
+  }
+  return loadCheckins_(date)[mssv] || null;
+}
+/** Chỉ mục điểm danh hôm nay (MSSV → dòng, thiết bị → MSSV). Chỉ dựng và ghi khi đang giữ khóa. */
+function ddIndexLocked_(date) {
+  var idx = cGet_(ddiKey_(date));
+  if (idx) return idx;
+  idx = { id: {}, dev: {} };
+  var vals = sheet_(SH.DD).getDataRange().getValues();
+  for (var i = 1; i < vals.length; i++) {
+    if (fmtDateCell_(vals[i][0]) !== date) continue;
+    var id = normId_(vals[i][2]);
+    idx.id[id] = i + 1;
+    if (vals[i][19]) idx.dev[String(vals[i][19])] = id;
+  }
+  cPut_(ddiKey_(date), idx);
+  return idx;
 }
 
 function deviceUsedToday_(date, deviceId, mssv) {
@@ -865,30 +1030,96 @@ function deviceUsedToday_(date, deviceId, mssv) {
   return '';
 }
 
-function findLive_(mssv) {
-  var vals = sheet_(SH.HT).getDataRange().getValues();
-  for (var i = 1; i < vals.length; i++) {
-    var r = vals[i];
-    if (normId_(r[0]) === mssv) {
-      return { row: i + 1, date: fmtDateCell_(r[1]), state: r[2], dist: r[3], acc: r[4], last: Number(r[5]) || 0,
-        outCount: Number(r[7]) || 0, outSince: r[8], leaves: Number(r[9]) || 0, outMin: Number(r[10]) || 0,
-        platform: String(r[11] || ''), lost: r[12] === true || r[12] === 'TRUE', lat: r[14], lng: r[15], flags: String(r[16] || '') };
-    }
-  }
-  return null;
+/* ---------- trạng thái theo dõi vị trí (sheet HienTai, 1 dòng/SV) ---------- */
+function lvKey_(mssv) { return 'lv_' + mssv; }
+function liveFromRow_(r, row) {
+  var o = { row: row, date: fmtDateCell_(r[1]), state: r[2], dist: r[3], acc: r[4], last: Number(r[5]) || 0,
+    outCount: Number(r[7]) || 0, outSince: r[8], leaves: Number(r[9]) || 0, outMin: Number(r[10]) || 0,
+    platform: String(r[11] || ''), lost: r[12] === true || r[12] === 'TRUE', name: String(r[13] || ''), lat: r[14], lng: r[15],
+    flags: String(r[16] || '') };
+  o.fl = o.last; o.sig = liveSig_(o);
+  return o;
 }
-
-function setLive_(mssv, name, date, o) {
+/** Các trường mà thay đổi thì phải ghi sheet ngay (giảng viên, báo cáo, trigger đều cần thấy). */
+function liveSig_(o) {
+  return [o.date, o.state, o.outCount || 0, o.outSince || '', o.leaves || 0, o.outMin || 0, !!o.lost, o.flags || '', o.platform || ''].join('|');
+}
+/** Đọc sheet HienTai một lần, nạp vào bộ nhớ đệm những SV chưa có (không đè dữ liệu mới hơn). */
+function loadLive_() {
+  var vals = sheet_(SH.HT).getDataRange().getValues(), map = {};
+  for (var i = 1; i < vals.length; i++) if (vals[i][0] !== '' && vals[i][0] != null) map[normId_(vals[i][0])] = liveFromRow_(vals[i], i + 1);
+  var ids = Object.keys(map), have = {}, put = {};
+  if (!ids.length) return map;
+  have = cGetAll_(ids.map(lvKey_));
+  ids.forEach(function (id) {
+    var h = have[lvKey_(id)];
+    if (h) { try { map[id] = JSON.parse(h); return; } catch (e) {} }
+    put[lvKey_(id)] = JSON.stringify(map[id]);
+  });
+  cPutAll_(put);
+  return map;
+}
+function findLive_(mssv) {
+  var hit = cGet_(lvKey_(mssv));
+  if (hit) return hit;
+  return loadLive_()[mssv] || null;
+}
+/** Nhiều SV một lúc (màn hình giảng viên, trigger): lấy từ bộ nhớ đệm, thiếu ai thì đọc sheet 1 lần. */
+function livesFor_(ids) {
+  var out = {}, miss = false, got = {};
+  if (!ids.length) return out;
+  got = cGetAll_(ids.map(lvKey_));
+  ids.forEach(function (id) {
+    var h = got[lvKey_(id)];
+    if (h) { try { out[id] = JSON.parse(h); return; } catch (e) {} }
+    miss = true;
+  });
+  if (miss) {
+    var all = loadLive_();
+    ids.forEach(function (id) { if (!out[id] && all[id]) out[id] = all[id]; });
+  }
+  return out;
+}
+/**
+ * Lưu trạng thái theo dõi. Ghi sheet khi trạng thái đổi, khi bị buộc (force) hoặc đã quá 5 phút từ lần ghi trước;
+ * các lần gửi vị trí còn lại chỉ cập nhật bộ nhớ đệm.
+ */
+function setLive_(mssv, name, date, o, force, locked) {
+  o.date = date; o.name = name;
+  var now = new Date().getTime(), s = liveSig_(o);
+  if (force || !o.row || s !== o.sig || now - Number(o.fl || 0) >= FLUSH_MS_) {
+    writeLiveRow_(mssv, name, date, o, locked);
+    o.sig = s; o.fl = now;
+  }
+  cPut_(lvKey_(mssv), o);
+}
+function writeLiveRow_(mssv, name, date, o, locked) {
   var sh = sheet_(SH.HT);
   var row = [mssv, date, o.state, o.dist, o.acc, o.last, o.last ? fmt_(new Date(o.last), 'HH:mm:ss') : '',
     o.outCount || 0, o.outSince || '', o.leaves || 0, o.outMin || 0, o.platform || '', !!o.lost, name,
     o.lat === undefined ? '' : o.lat, o.lng === undefined ? '' : o.lng, o.flags || ''];
-  var ex = findLive_(mssv);
-  if (ex) sh.getRange(ex.row, 1, 1, row.length).setValues([row]);
-  else sh.appendRow(row);
+  if (o.row && o.row <= sh.getLastRow() && normId_(sh.getRange(o.row, 1).getValue()) === mssv) {
+    sh.getRange(o.row, 1, 1, row.length).setValues([row]);
+    return;
+  }
+  // Chưa có dòng hoặc dòng đã đổi chỗ: tìm lại trong khóa để không tạo 2 dòng cho 1 SV
+  var lock = locked ? null : LockService.getScriptLock();
+  if (lock) lock.waitLock(20000);
+  try {
+    var vals = sh.getDataRange().getValues(), r = 0;
+    for (var i = 1; i < vals.length; i++) if (normId_(vals[i][0]) === mssv) { r = i + 1; break; }
+    if (r) sh.getRange(r, 1, 1, row.length).setValues([row]);
+    else { sh.appendRow(row); r = sh.getLastRow(); }
+    o.row = r;
+  } finally { if (lock) lock.releaseLock(); }
 }
 
-function updateCheckinStats_(row, live) { sheet_(SH.DD).getRange(row, 17, 1, 2).setValues([[live.leaves || 0, live.outMin || 0]]); }
+/** Ghi số lần rời vùng và phút ngoài vùng vào dòng điểm danh (kiểm tra lại dòng trước khi ghi). */
+function updateCheckinStats_(rec, date, mssv, live) {
+  var row = rowRec_(rec.row, date, mssv) ? rec.row : 0;
+  if (!row) { var fresh = loadCheckins_(date)[mssv]; if (!fresh) return; row = fresh.row; }
+  sheet_(SH.DD).getRange(row, 17, 1, 2).setValues([[live.leaves || 0, live.outMin || 0]]);
+}
 
 function log_(date, mssv, name, ev, dist, acc, lat, lng, detail) {
   var now = new Date();
@@ -1075,7 +1306,7 @@ function findLecturer_(user) {
   return null;
 }
 function lecStudents_(lec) {
-  return allStudents_().filter(function (s) { return !lec.groups.length || lec.groups.indexOf(String(s.group).toUpperCase()) >= 0; });
+  return studentsLite_().filter(function (s) { return !lec.groups.length || lec.groups.indexOf(String(s.group).toUpperCase()) >= 0; });
 }
 
 function apiLecLogin_(d) {
@@ -1098,25 +1329,43 @@ function apiLecOverview_(d) {
   if (!lec) return { ok: false, code: 'AUTH', msg: 'Phiên đăng nhập đã hết hạn, đăng nhập lại.' };
   var c = cfg_(), now = new Date(), date = fmt_(now, 'yyyy-MM-dd');
   var students = lecStudents_(lec);
-  var dd = {}, ht = {};
-  sheet_(SH.DD).getDataRange().getValues().slice(1).forEach(function (r) { if (fmtDateCell_(r[0]) === date) dd[normId_(r[2])] = r; });
-  sheet_(SH.HT).getDataRange().getValues().slice(1).forEach(function (r) { if (fmtDateCell_(r[1]) === date) ht[normId_(r[0])] = r; });
+  var base = overviewBase_(date);
+  var dd = base.dd;
   var mine = {};
   students.forEach(function (s) { mine[s.mssv] = true; });
+  var ht = livesFor_(students.map(function (s) { return s.mssv; }));
   var list = students.map(function (s) {
     var r = dd[s.mssv], h = ht[s.mssv];
+    if (h && h.date !== date) h = null;
     return {
-      mssv: s.mssv, name: s.name, group: s.group, enrolled: !!s.desc,
-      checkin: r ? { time: fmtTimeCell_(r[1]).substr(0, 5), status: r[5], late: r[6], dist: r[7], note: String(r[13] || ''), site: String(r[21] || ''), siteName: siteName_(c, r[21]),
-        slots: slotSummary_(c, now, date, { time: fmtTimeCell_(r[1]), confirms: splitList_(r[15]) }).replace('\n', ' '),
-        leaves: Number(r[16] || 0), outMin: Number(r[17] || 0), platform: String(r[18] || '') } : null,
-      live: h ? { state: h[2], dist: h[3], last: h[6], lost: h[12] === true || h[12] === 'TRUE' } : null
+      mssv: s.mssv, name: s.name, group: s.group, enrolled: !!s.enrolled,
+      checkin: r ? { time: r.time.substr(0, 5), status: r.status, late: r.late, dist: r.dist, note: r.note, site: r.site, siteName: siteName_(c, r.site),
+        slots: slotSummary_(c, now, date, { time: r.time, confirms: r.confirms }).replace('\n', ' '),
+        leaves: r.leaves, outMin: r.outMin, platform: r.platform } : null,
+      live: h ? { state: h.state, dist: h.dist, last: h.last ? fmt_(new Date(Number(h.last)), 'HH:mm:ss') : '', lost: !!h.lost } : null
     };
   });
-  var msgs = messagesOn_(date).filter(function (m) { return mine[m.mssv]; });
+  var msgs = base.msgs.filter(function (m) { return mine[m.mssv]; });
   return { ok: true, serverTime: Date.now(), config: publicConfig_(c), lecturer: { name: lec.name, user: lec.user },
     date: date, students: list, messages: msgs.reverse() };
 }
+
+/** Dữ liệu chung của màn hình giảng viên (điểm danh hôm nay + thông báo), dùng chung cho mọi giảng viên trong 15 giây. */
+function overviewBase_(date) {
+  var key = 'ov_' + gen_() + '_' + date;
+  var hit = cGet_(key);
+  if (hit) return hit;
+  var dd = {};
+  sheet_(SH.DD).getDataRange().getValues().slice(1).forEach(function (r) {
+    if (fmtDateCell_(r[0]) !== date) return;
+    dd[normId_(r[2])] = { time: fmtTimeCell_(r[1]), status: r[5], late: r[6], dist: r[7], note: String(r[13] || ''), site: String(r[21] || ''),
+      confirms: splitList_(r[15]), leaves: Number(r[16] || 0), outMin: Number(r[17] || 0), platform: String(r[18] || '') };
+  });
+  var base = { dd: dd, msgs: messagesOn_(date) };
+  cPut_(key, base, 15);
+  return base;
+}
+function dropOverview_(date) { cDel_('ov_' + gen_() + '_' + date); }
 
 function apiLecSend_(d) {
   var lec = lecFromToken_(d.token);
@@ -1136,14 +1385,31 @@ function apiLecSend_(d) {
   });
   var sh = sheet_(SH.TB);
   sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  // Báo cho đường hỏi nhanh của sinh viên: có thông báo mới từ thời điểm này
+  var stamp = String(new Date().getTime()), put = {};
+  ids.forEach(function (m) { put['ibs_' + m] = stamp; });
+  cPutAll_(put);
+  ids.forEach(function (m) { cDel_('ib_' + date + '_' + m); });
+  dropOverview_(date);
   return { ok: true, count: rows.length, msg: 'Đã gửi đến ' + rows.length + ' sinh viên.' };
 }
 
 /** Thông báo trong ngày của 1 sinh viên chưa xử lý xong. Đánh dấu "Đã nhận" khi điện thoại tải về. */
 function inbox_(mssv, deviceId) {
+  var now = new Date(), date = fmt_(now, 'yyyy-MM-dd'), nowStr = fmt_(now, 'HH:mm:ss');
+  // Đường nhanh: lần đọc trước (lúc t) không có gì và từ t đến nay giảng viên chưa gửi gì cho SV này
+  var kE = 'ib_' + date + '_' + mssv, kS = 'ibs_' + mssv, got = {};
+  try { got = cache_().getAll([kE, kS]) || {}; } catch (e) {}
+  if (got[kE] && Number(got[kE]) > Number(got[kS] || 0) + 2000) return [];   // chừa 2 giây lệch đồng hồ giữa các máy chủ
+  var t0 = now.getTime();
+  var out = inboxRead_(mssv, now, date, nowStr);
+  if (!out.length) { try { cache_().put(kE, String(t0), 300); } catch (e) {} }
+  return out;
+}
+
+function inboxRead_(mssv, now, date, nowStr) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.TB);
   if (!sh || sh.getLastRow() < 2) return [];
-  var now = new Date(), date = fmt_(now, 'yyyy-MM-dd'), nowStr = fmt_(now, 'HH:mm:ss');
   var vals = sh.getDataRange().getValues(), out = [];
   for (var i = 1; i < vals.length; i++) {
     var r = vals[i];
@@ -1190,6 +1456,7 @@ function apiAck_(d) {
   if (!m) return { ok: false, msg: 'Không tìm thấy thông báo.' };
   if (m.r[6] !== 'TB') return { ok: false, msg: 'Yêu cầu này phải xác nhận bằng khuôn mặt.' };
   m.sh.getRange(m.row, 10, 1, 3).setValues([['Đã xem', m.r[10] || fmt_(new Date(), 'HH:mm:ss'), fmt_(new Date(), 'HH:mm:ss')]]);
+  dropOverview_(today_());
   return { ok: true };
 }
 
@@ -1216,6 +1483,7 @@ function apiAnswer_(d) {
     'Xác nhận có mặt theo yêu cầu của ' + m.r[3] + ' – ' + v.st.name + ' (' + mssv + ') – ' + APP.BRAND);
   var t = fmt_(now, 'HH:mm:ss');
   m.sh.getRange(m.row, 10, 1, 4).setValues([['Có mặt', m.r[10] || t, t, 'Cách tâm ' + Math.round(v.dist) + ' m | ' + file.getUrl()]]);
+  dropOverview_(date);
   log_(date, mssv, v.st.name, 'XN_GIANG_VIEN', Math.round(v.dist), Math.round(v.acc), v.lat, v.lng, 'Yêu cầu của ' + m.r[3] + ' | ' + file.getUrl());
   return { ok: true, msg: 'Đã xác nhận có mặt, gửi đến ' + m.r[3] + '.' };
 }
@@ -1354,6 +1622,7 @@ function apiRebind_(d) {
     var sh = sheet_(SH.SV);
     var oldDev = st.device;
     sh.getRange(st.row, 7).setValue(d.deviceId);
+    dropStudents_();
     var note = String(sh.getRange(st.row, 8).getValue() || '');
     sh.getRange(st.row, 8).setValue((note ? note + ' | ' : '') + 'Đổi điện thoại ' + fmt_(now, 'dd/MM/yyyy HH:mm'));
     var url = '';
@@ -1402,4 +1671,100 @@ function menuSites() {
   SpreadsheetApp.getUi().alert('Các cơ sở đang dùng (' + list.length + '):\n\n' + list.map(function (x) {
     return x.code + ' – ' + x.name + '\n   ' + x.lat + ', ' + x.lng + ' | điểm danh ' + x.r1 + ' m, rời vùng ' + x.r2 + ' m';
   }).join('\n'));
+}
+
+
+/* ============================ LƯU TRỮ DỮ LIỆU CŨ (từ 1.7.0) ============================
+ * Mỗi tối chuyển các dòng cũ hơn LUU_TRU_NGAY ngày của DiemDanh, SuKienViTri, ThongBao sang một file
+ * Google Sheet lưu trữ trong thư mục Drive gốc, rồi mới xóa khỏi file chính. Giữ nguyên liên kết ảnh.
+ */
+var ARCHIVE_SPECS_ = [
+  { name: SH.DD, dateCol: 0, idCol: 2, text: ['A:C', 'P:P', 'T:V'] },
+  { name: SH.SK, dateCol: 1, idCol: 2, text: ['A:C'] },
+  { name: SH.TB, dateCol: 1, idCol: 4, text: ['A:C', 'E:E', 'K:L'] }
+];
+var ARCHIVE_MAX_ROWS_ = 5000;   // mỗi sheet mỗi tối, phần còn lại chuyển vào tối hôm sau
+
+function maybeArchive_(c, now) {
+  var keep = num_(c.LUU_TRU_NGAY);
+  if (!isFinite(keep) || keep <= 0) return '';
+  var props = PropertiesService.getScriptProperties();
+  var today = fmt_(now, 'yyyy-MM-dd');
+  if (props.getProperty('ARCHIVE_LAST') === today) return '';
+  props.setProperty('ARCHIVE_LAST', today);
+  var r = archiveOld_(Math.max(7, keep));
+  if (r) console.log('Lưu trữ: ' + r);
+  return r;
+}
+
+function archiveBook_() {
+  var p = PropertiesService.getScriptProperties(), id = p.getProperty('ARCHIVE_ID');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) {} }
+  var book = SpreadsheetApp.create('Diem danh - Luu tru du lieu cu - BV TLS');
+  try { book.setSpreadsheetTimeZone(TZ); } catch (e) {}
+  try { DriveApp.getFileById(book.getId()).moveTo(getRootFolder_()); } catch (e) {}
+  p.setProperty('ARCHIVE_ID', book.getId());
+  return book;
+}
+
+/** Trả về mô tả số dòng đã chuyển, chuỗi rỗng nếu không có gì. */
+function archiveOld_(keepDays) {
+  var cutoff = fmt_(new Date(new Date().getTime() - keepDays * 86400000), 'yyyy-MM-dd');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return '';
+  var done = [], book = null;
+  try {
+    ARCHIVE_SPECS_.forEach(function (sp) {
+      var src = ss.getSheetByName(sp.name);
+      if (!src || src.getLastRow() < 2) return;
+      var rng = src.getDataRange(), vals = rng.getValues(), fm = rng.getFormulas();
+      // Chỉ lấy khối dòng liên tiếp từ đầu sheet có ngày cũ hơn mốc (dữ liệu ghi theo thời gian)
+      var k = 0;
+      while (k + 1 < vals.length && k < ARCHIVE_MAX_ROWS_) {
+        var dt = fmtDateCell_(vals[k + 1][sp.dateCol]);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dt) || dt >= cutoff) break;
+        k++;
+      }
+      if (!k) return;
+      var w = vals[0].length, rows = [];
+      for (var i = 1; i <= k; i++) rows.push(vals[i].map(function (v, j) { return fm[i][j] ? fm[i][j] : v; }));
+      book = book || archiveBook_();
+      var dst = book.getSheetByName(sp.name);
+      if (!dst) {
+        var first = book.getSheets()[0];
+        dst = (book.getSheets().length === 1 && first.getLastRow() === 0 && !book.getSheetByName(SH.DD) && !book.getSheetByName(SH.SK) &&
+          !book.getSheetByName(SH.TB)) ? first.setName(sp.name) : book.insertSheet(sp.name);
+      }
+      if (dst.getMaxColumns() < w) dst.insertColumnsAfter(dst.getMaxColumns(), w - dst.getMaxColumns());
+      if (dst.getLastRow() === 0) {
+        dst.getRange(1, 1, 1, w).setValues([vals[0]]).setFontWeight('bold').setBackground('#b3261e').setFontColor('#ffffff');
+        dst.setFrozenRows(1);
+        sp.text.forEach(function (a) { dst.getRange(a).setNumberFormat('@'); });
+      }
+      var start = dst.getLastRow() + 1;
+      if (dst.getMaxRows() < start + k - 1) dst.insertRowsAfter(dst.getMaxRows(), start + k - 1 - dst.getMaxRows());
+      dst.getRange(start, 1, k, w).setValues(rows);
+      SpreadsheetApp.flush();
+      // Kiểm tra đã ghi đủ rồi mới xóa ở file chính
+      var chk = dst.getRange(start, 1, k, w).getValues();
+      var same = function (a, b) {
+        return fmtDateCell_(a[sp.dateCol]) === fmtDateCell_(b[sp.dateCol]) && normId_(a[sp.idCol]) === normId_(b[sp.idCol]);
+      };
+      if (chk.length !== k || !same(chk[0], vals[1]) || !same(chk[k - 1], vals[k])) {
+        console.error('Lưu trữ ' + sp.name + ': kiểm tra không khớp, không xóa dữ liệu gốc.');
+        return;
+      }
+      if (k >= src.getLastRow() - 1) {
+        // Không được xóa hết các dòng không cố định: xóa nội dung dòng 2, xóa các dòng còn lại
+        src.getRange(2, 1, 1, w).clearContent();
+        if (k > 1) src.deleteRows(3, k - 1);
+      } else {
+        src.deleteRows(2, k);
+      }
+      done.push(sp.name + ' ' + k + ' dòng');
+    });
+  } finally { lock.releaseLock(); }
+  if (done.length) refreshCaches_();
+  return done.join(', ');
 }

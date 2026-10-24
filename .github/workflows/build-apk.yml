@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Chỉ sửa máy chủ Apps Script hoặc tài liệu thì không cần build lại APK
+    paths-ignore: ['backend/**', '*.md']
   workflow_dispatch:
 
 permissions:

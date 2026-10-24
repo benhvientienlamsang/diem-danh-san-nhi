@@ -141,16 +141,23 @@ Ghi chú: GitHub Pages của kho công khai cho phép người khác xem mã gia
 | `CHAN_APP_FAKE_GPS_DA_CAI` | TRUE | Chặn cả khi chỉ cài app fake GPS (chưa bật) |
 | `CHAN_MAY_ROOT` | FALSE | TRUE để chặn máy đã root |
 | `CANH_BAO_EMAIL_KHI_ROI_VUNG` | FALSE | TRUE để nhận email ngay khi SV rời vùng |
+| `LUU_TRU_NGAY` | 30 | Mỗi tối khoảng 19:30, dữ liệu cũ hơn số ngày này được chuyển sang file lưu trữ. Tối thiểu 7, ghi 0 để tắt |
 
 Sửa cấu hình trực tiếp trong Sheet có hiệu lực ngay, chậm nhất sau 2 phút.
+
+### Bộ nhớ đệm và lưu trữ (từ máy chủ 1.7.0)
+
+- Máy chủ giữ trạng thái theo dõi vị trí trong bộ nhớ đệm. Sheet `HienTai` được ghi ngay khi có thay đổi (rời vùng, quay lại, mất tín hiệu) và tối đa 5 phút một lần khi sinh viên đứng yên. Màn hình giảng viên luôn thấy vị trí mới nhất.
+- Sửa ô trong các sheet thì máy chủ tự cập nhật. Riêng khi **xóa cả dòng, chèn dòng hoặc sắp xếp** trong `DiemDanh`, `SinhVien`, `HienTai`, hãy chọn menu **BV TLS > Làm mới dữ liệu tạm**.
+- Mỗi tối, các dòng cũ trong `DiemDanh`, `SuKienViTri`, `ThongBao` được chuyển sang file Google Sheet **Diem danh - Luu tru du lieu cu - BV TLS** trong thư mục Drive gốc (liên kết ảnh giữ nguyên). Muốn chạy ngay: menu **BV TLS > Lưu trữ dữ liệu cũ ngay**. Ảnh và báo cáo PDF trên Drive không bị xóa.
 
 ## 8. Giới hạn cần biết
 
 - **iPhone không chạy nền được.** Apple không cho trang web lấy vị trí khi đã thoát hoặc khóa màn hình. Vì vậy SV dùng iPhone chỉ bị theo dõi khi đang mở app, việc có mặt được kiểm soát bằng 3 mốc xác nhận khuôn mặt. Muốn theo dõi nền trên iPhone phải làm app iOS gốc và phát hành qua App Store hoặc TestFlight (cần tài khoản Apple Developer).
 - **Fake GPS trên iPhone** cần bẻ khóa máy hoặc thiết bị giả lập gắn ngoài. Trang web không phát hiện trực tiếp được, chỉ có các dấu hiệu nghi ngờ ghi trong báo cáo.
 - **Android đã root** có công cụ che giấu được việc giả lập. App ghi nhận dấu hiệu root vào báo cáo, có thể bật `CHAN_MAY_ROOT`.
-- **Nhận diện khuôn mặt** chạy ngay trên điện thoại và không còn bước nhắm mở mắt, nên không tự chặn được việc giơ ảnh hoặc video của người khác trước camera. Ảnh điểm danh lưu trên Drive để giảng viên đối chiếu khi nghi ngờ. Ảnh điểm danh lưu trên Drive để đối chiếu khi nghi ngờ.
-- **Sức chứa**: Apps Script xử lý tối đa khoảng 30 yêu cầu cùng lúc. Với nhóm khoảng 100 SV hoạt động ổn, nếu SV dồn điểm danh cùng một phút có thể phải bấm Gửi lại.
+- **Nhận diện khuôn mặt** chạy ngay trên điện thoại và không còn bước nhắm mở mắt, nên không tự chặn được việc giơ ảnh hoặc video của người khác trước camera. Ảnh điểm danh lưu trên Drive để giảng viên đối chiếu khi nghi ngờ.
+- **Sức chứa**: Apps Script xử lý tối đa khoảng 30 yêu cầu cùng lúc. Từ máy chủ 1.7.0, việc gửi vị trí không còn phải xếp hàng và gần như không đọc sheet, nên vài trăm sinh viên dùng cùng lúc vẫn ổn. Điểm nghẽn còn lại là lúc nhiều SV bấm điểm danh trong cùng một phút (mỗi lượt lưu ảnh lên Drive mất 1–2 giây). Nếu bị báo bận, SV chờ vài giây rồi bấm Gửi lại.
 - **Dữ liệu sinh trắc học**: ảnh và đặc trưng khuôn mặt là dữ liệu cá nhân nhạy cảm theo Nghị định 13/2023/NĐ-CP và Luật Bảo vệ dữ liệu cá nhân. App đã có màn hình SV đồng ý, nhưng nên có thông báo chính thức của Trường về mục đích thu thập, thời hạn lưu và người được xem dữ liệu. Anh nên trao đổi thêm với bộ phận pháp chế.
 
 ## 9. Kiểm thử trước khi áp dụng

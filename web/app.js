@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.6.0';
+  const VERSION = '1.6.1';
 
   const S = {
     session: load('dd_session'),
@@ -59,6 +59,8 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   function show(id) {
     document.querySelectorAll('.screen').forEach(s => { s.hidden = s.id !== id; }); window.scrollTo(0, 0);
+    clearTimeout(show._slow); $('loadingSlow').hidden = true; $('btnLoadRetry').hidden = true;
+    if (id === 'scr-loading') show._slow = setTimeout(() => { $('loadingSlow').hidden = false; $('btnLoadRetry').hidden = false; }, 10000);
     if (id === 'scr-login' && !document.querySelector('input[name="classCode"]')) loadClasses();
   }
   function toast(msg, ms) {
@@ -74,18 +76,34 @@
   }
 
   /* ============================ máy chủ ============================ */
+  // Có gửi ảnh thì cho chờ lâu hơn; các yêu cầu khác tối đa 25 giây rồi báo lỗi để SV bấm Thử lại
+  const SLOW_ACTIONS = ['checkin', 'confirm', 'answer', 'enroll', 'rebind'];
+  function withTimeout(p, ms) {
+    let t;
+    return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('Máy chủ không phản hồi. Kiểm tra mạng Wi‑Fi hoặc 4G rồi thử lại.')), ms); })])
+      .finally(() => clearTimeout(t));
+  }
+  async function apiOnce(action, body) {
+    const slow = SLOW_ACTIONS.indexOf(action) >= 0;
+    if (NATIVE) {
+      // Gọi HTTP bằng lớp native để không bị Android chặn khi app chạy nền
+      const r = await withTimeout(Http.post({ url: CFG.API_URL, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, data: body,
+        connectTimeout: 15000, readTimeout: slow ? 60000 : 25000 }), slow ? 80000 : 30000);
+      return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    }
+    const r = await withTimeout(fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, redirect: 'follow' }),
+      slow ? 80000 : 30000);
+    return await r.json();
+  }
   async function api(action, data) {
     if (!CFG.API_URL || /^DAN_/.test(CFG.API_URL)) throw new Error('Chưa cấu hình địa chỉ máy chủ trong config.js.');
     const body = JSON.stringify(Object.assign({ action, platform: PLATFORM, deviceId: S.deviceId, appVersion: VERSION }, data || {}));
     let d;
-    if (NATIVE) {
-      // Gọi HTTP bằng lớp native để không bị Android chặn khi app chạy nền
-      const r = await Http.post({ url: CFG.API_URL, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, data: body,
-        connectTimeout: 20000, readTimeout: 60000 });
-      d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-    } else {
-      const r = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, redirect: 'follow' });
-      d = await r.json();
+    try { d = await apiOnce(action, body); }
+    catch (e) {
+      // Yêu cầu chỉ đọc: tự thử lại 1 lần (mạng di động hay rớt kết nối đầu tiên)
+      if (['status', 'classes', 'config', 'inbox'].indexOf(action) < 0) throw e;
+      d = await apiOnce(action, body);
     }
     if (d && d.serverTime) S.offset = d.serverTime - Date.now();
     if (d && d.config) applyConfig(d.config);
@@ -335,6 +353,7 @@
   $('cbConsent').addEventListener('change', e => { $('btnConsent').disabled = !e.target.checked; });
   $('btnConsent').addEventListener('click', () => { S.session.consent = true; save('dd_session', S.session); route(); });
   $('btnRetry').addEventListener('click', () => (S.session ? refresh() : show('scr-login')));
+  $('btnLoadRetry').addEventListener('click', () => (S.session ? refresh() : show('scr-login')));
 
   $('btnEnroll').addEventListener('click', async () => {
     if (S.busy) return;

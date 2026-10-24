@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.3' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.4' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -974,7 +974,26 @@ function latLng_(a, b) {
   var lat = la.length ? la[0] : NaN, lng = lb.length ? lb[lb.length - 1] : NaN;
   if (la.length >= 2 && !okLng_(lng)) lng = la[1];
   if (lb.length >= 2 && !okLat_(lat)) lat = lb[0];
+  if (!vnLat_(lat)) lat = fixDigits_(a, vnLat_);
+  if (!vnLng_(lng)) lng = fixDigits_(String(b == null ? '' : b).trim() ? b : a, vnLng_, true);
   return { lat: okLat_(lat) ? lat : NaN, lng: okLng_(lng) ? lng : NaN };
+}
+function vnLat_(n) { return isFinite(n) && n >= 8 && n <= 23.5; }
+function vnLng_(n) { return isFinite(n) && n >= 102 && n <= 110; }
+/**
+ * Google Sheet tiếng Việt hay tự đổi 10.0171240 thành số 100171240 (hiện 100.171.240).
+ * Lấy lại các chữ số rồi đặt dấu thập phân sao cho rơi vào vùng tọa độ Việt Nam.
+ */
+function fixDigits_(v, ok, last) {
+  var parts = String(v == null ? '' : v).split(/,\s+|;|\s+/).filter(String);
+  var t = last ? parts[parts.length - 1] : parts[0];
+  var digits = String(t || '').replace(/[^0-9]/g, '');
+  if (digits.length < 3) return NaN;
+  for (var k = 1; k <= 3; k++) {
+    var n = Number(digits.slice(0, k) + '.' + digits.slice(k));
+    if (ok(n)) return n;
+  }
+  return NaN;
 }
 function kgLatLng_(c) {
   var ll = latLng_(c.VI_DO, c.KINH_DO);
@@ -1257,10 +1276,13 @@ function sites_(c) {
   var out = [];
   var sh = ensureSitesSheet_(c);
   if (sh) {
-    sh.getDataRange().getDisplayValues().slice(1).forEach(function (r) {
+    sh.getDataRange().getDisplayValues().slice(1).forEach(function (r, idx) {
       var code = String(r[0] || '').trim().toUpperCase();
       if (!code || String(r[7]).trim().toUpperCase() === 'FALSE') return;
       var ll = latLng_(r[3], r[4]), lat = ll.lat, lng = ll.lng;
+      if (isFinite(lat) && isFinite(lng) && (String(r[3]).trim() !== String(lat) || String(r[4]).trim() !== String(lng))) {
+        try { sh.getRange(idx + 2, 4, 1, 2).setNumberFormat('@').setValues([[String(lat), String(lng)]]); } catch (e) {}
+      }
       if (!isFinite(lat) || !isFinite(lng)) return;
       out.push({ code: code, name: String(r[1] || code).trim(), address: String(r[2] || '').trim(), lat: lat, lng: lng,
         r1: num_(r[5]) || num_(c.BAN_KINH_DIEM_DANH_M), r2: num_(r[6]) || num_(c.BAN_KINH_ROI_VUNG_M) });

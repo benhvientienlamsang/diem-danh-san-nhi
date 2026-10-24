@@ -2,7 +2,7 @@
 
 Từ BV TLS – by Dr Huy - BV TLS
 
-Mục đích: kiểm soát sinh viên có mặt tại khu vực lâm sàng Bệnh viện Sản Nhi Kiên Giang từ 07:00 đến 11:00, tránh trốn ca.
+Mục đích: kiểm soát sinh viên có mặt tại khu vực lâm sàng (Bệnh viện Sản Nhi Kiên Giang, Bệnh viện Nhi Đồng Cần Thơ và các cơ sở khai báo thêm) từ 07:00 đến 11:00, tránh trốn ca.
 
 ## 1. Hệ thống gồm những gì
 
@@ -18,7 +18,8 @@ Mọi quyết định (đúng giờ hay trễ, trong hay ngoài vùng, khuôn m�
 
 - Trước 07:00: đến bệnh viện, mở app, đứng trong bán kính 20 m, ghi chú (nếu có), quét khuôn mặt (nhìn thẳng, nhắm mắt rồi mở mắt), xem lại ảnh có đóng dấu giờ, bấm Gửi. Sau 07:00 vẫn điểm danh được nhưng ghi “Trễ x phút”. Sau 11:00 không nhận điểm danh.
 - Từ lúc điểm danh đến 11:00: app ghi nhận vị trí. Ra xa quá 60 m bị ghi “Rời vùng”, quay lại bị ghi “Quay lại” kèm số phút ở ngoài.
-- Các mốc 08:30, 09:30, 10:30 (mỗi mốc mở 15 phút): quét khuôn mặt xác nhận có mặt trong bán kính 60 m. Mốc này chặn trường hợp để điện thoại lại bệnh viện rồi bỏ về, và bù cho việc iPhone không chạy nền.
+- Từ 07:00 đến 11:00 app tự động gửi vị trí, sinh viên không phải thao tác. Rời vùng chỉ tính trong khung giờ này.
+- Tùy chọn: điền các mốc vào `XAC_NHAN_GIUA_CA` (ví dụ 08:30,09:30,10:30) nếu muốn sinh viên quét khuôn mặt giữa ca. Mặc định tắt. Giảng viên vẫn có thể gửi “Yêu cầu xác nhận có mặt” đột xuất cho sinh viên được chọn.
 - Sau 11:00: app tự ngừng định vị.
 
 ### Các lớp chống gian lận
@@ -55,15 +56,19 @@ Sau bước 5, Drive có thư mục **Diem danh BV San Nhi Kien Giang - BV TLS**
 
 Báo cáo cũng được gửi email đến tài khoản chủ Sheet (đổi ở `EMAIL_NHAN_BAO_CAO`). Tạo báo cáo bất kỳ lúc nào: menu **BV TLS > Tạo báo cáo hôm nay** trong Sheet.
 
-## 3. Hiệu chỉnh tọa độ bệnh viện (bắt buộc làm tại chỗ)
+## 3. Cơ sở thực tập và tọa độ (bắt buộc kiểm tra tại chỗ)
 
-Tọa độ mặc định `9.9731417, 105.0975708` lấy từ Google Maps cho địa chỉ 03 Ung Văn Khiêm, phường Rạch Giá. Đây là điểm đại diện của cả khuôn viên, chưa chắc là nơi sinh viên tập trung. Bán kính 20 m rất hẹp so với kích thước tòa nhà, nên cần đặt tâm đúng chỗ:
+Sheet **CoSo** (tạo khi chạy hàm `setup`) liệt kê các bệnh viện thực tập, mỗi dòng một cơ sở:
 
-1. Chọn điểm tập trung điểm danh (ví dụ sảnh khoa Nhi hoặc cổng chính), nên ở nơi thoáng.
-2. Đứng tại đó, mở Google Maps, nhấn giữ vào chấm xanh vị trí của mình, sao chép tọa độ.
-3. Dán vào `VI_DO` và `KINH_DO` trong sheet `CauHinh`.
+| Mã | Tên cơ sở | Vĩ độ | Kinh độ | Bán kính điểm danh | Bán kính rời vùng | Đang dùng |
+|---|---|---|---|---|---|---|
+| KG | Bệnh viện Sản Nhi Kiên Giang | 9.9731417 | 105.0975708 | 20 | 60 | TRUE |
+| NDCT | Bệnh viện Nhi Đồng Cần Thơ | 10.0171240 | 105.7391971 | 20 | 60 | TRUE |
 
-Lưu ý thực tế: trong nhà, GPS điện thoại thường sai 10 đến 30 m. Máy chủ đã trừ tối đa 10 m sai số (`SAI_SO_GPS_CHO_PHEP_M`). Nếu tuần đầu nhiều SV báo “ngoài bán kính” dù đứng đúng chỗ, tăng `BAN_KINH_DIEM_DANH_M` lên 30 hoặc 40.
+- Tọa độ mặc định lấy từ Google Maps theo địa chỉ, là điểm đại diện của cả khuôn viên. Với bán kính 20 m, cần đứng tại điểm tập trung của từng bệnh viện, mở Google Maps, nhấn giữ chấm xanh để lấy tọa độ, rồi sửa cột Vĩ độ, Kinh độ.
+- Thêm cơ sở mới: thêm một dòng với mã ngắn (không dấu, không khoảng trắng). Tạm ngừng một cơ sở: ghi FALSE ở cột Đang dùng.
+- Trên app, sinh viên thấy mục **Cơ sở thực tập hôm nay**. App tự chọn cơ sở gần nhất theo GPS, sinh viên có thể đổi. Sau khi điểm danh, cả ca (đến 11:00) được theo dõi theo cơ sở đã điểm danh. Báo cáo và màn hình giảng viên ghi rõ sinh viên điểm danh tại cơ sở nào, giảng viên lọc được theo từng cơ sở.
+- Trong nhà, GPS điện thoại thường sai 10 đến 30 m. Nếu sinh viên hay bị báo ngoài bán kính dù đứng đúng chỗ, tăng bán kính điểm danh của cơ sở đó lên 30 hoặc 40.
 
 ## 4. Mã lớp và sinh viên tự đăng ký
 
@@ -107,7 +112,7 @@ Ghi chú: GitHub Pages của kho công khai cho phép người khác xem mã gia
 2. Bấm **Chia sẻ > Thêm vào MH chính > Thêm**.
 3. Mở biểu tượng **Điểm danh** trên màn hình chính, nhập họ và tên, MSSV và mã lớp, đăng ký khuôn mặt, cho phép Camera và Vị trí.
 4. Nếu lỡ từ chối vị trí: Cài đặt > Quyền riêng tư & Bảo mật > Dịch vụ định vị > Trang web Safari > Khi dùng ứng dụng, bật **Vị trí chính xác**.
-5. Đặt báo thức cho các mốc 08:30, 09:30, 10:30 (iPhone không tự nhắc).
+5. Trong ca, thỉnh thoảng mở app để gửi vị trí và nhận thông báo (iPhone không chạy nền).
 
 ## 6b. Tài khoản giảng viên
 
@@ -129,7 +134,7 @@ Ghi chú: GitHub Pages của kho công khai cho phép người khác xem mã gia
 | `GIO_HAN_DIEM_DANH` | 07:00 | Trước giờ này là đúng giờ |
 | `GIO_KET_THUC_THEO_DOI` | 11:00 | Hết ca, ngừng định vị |
 | `NGAY_HOC` | 2,3,4,5,6 | Thứ Hai đến thứ Sáu. Thêm 7 nếu học thứ Bảy |
-| `XAC_NHAN_GIUA_CA` | 08:30,09:30,10:30 | Để trống nếu không muốn xác nhận giữa ca |
+| `XAC_NHAN_GIUA_CA` | (trống) | Điền mốc giờ, ví dụ 08:30,09:30,10:30, nếu muốn SV quét khuôn mặt giữa ca |
 | `NGUONG_KHUON_MAT` | 0.50 | Giảm (0.45) nếu muốn chặt hơn, tăng (0.55) nếu SV hay bị báo không khớp |
 | `CHAN_APP_FAKE_GPS_DA_CAI` | TRUE | Chặn cả khi chỉ cài app fake GPS (chưa bật) |
 | `CHAN_MAY_ROOT` | FALSE | TRUE để chặn máy đã root |

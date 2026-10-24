@@ -12,9 +12,9 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.3.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.4.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
-var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao' };
+var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
 
 var DEFAULT_CONFIG = [
@@ -35,7 +35,7 @@ var DEFAULT_CONFIG = [
   ['NGUONG_TRUNG_KHUON_MAT', '0.45', 'Khi đăng ký, khuôn mặt gần hơn mức này với SV khác sẽ bị từ chối'],
   ['KHOA_1_THIET_BI', 'TRUE', 'TRUE: mỗi SV chỉ dùng 1 điện thoại đã đăng ký'],
   ['CHO_SV_TU_DANG_KY', 'TRUE', 'TRUE: SV chưa có trong danh sách được tự đăng ký lần đầu (họ tên, MSSV, mã lớp, khuôn mặt). FALSE: chỉ SV có sẵn trong sheet SinhVien'],
-  ['XAC_NHAN_GIUA_CA', '08:30,09:30,10:30', 'Các mốc xác nhận khuôn mặt giữa ca. Để trống = tắt'],
+  ['XAC_NHAN_GIUA_CA', '', 'Các mốc SV phải quét khuôn mặt giữa ca, ví dụ 08:30,09:30,10:30. Để trống = tắt, chỉ tự động gửi định vị'],
   ['XAC_NHAN_CUA_SO_PHUT', '15', 'Mỗi mốc xác nhận mở trong bao nhiêu phút'],
   ['CHAN_APP_FAKE_GPS_DA_CAI', 'TRUE', 'Android: TRUE = không cho điểm danh khi máy có cài app giả lập vị trí'],
   ['CHAN_MAY_ROOT', 'FALSE', 'Android: TRUE = không cho điểm danh trên máy đã root'],
@@ -64,7 +64,11 @@ function onOpen() {
 }
 
 function onEdit(e) {
-  try { if (e && e.range && e.range.getSheet().getName() === SH.CFG) CacheService.getScriptCache().remove('cfg'); } catch (err) {}
+  try {
+    var n = e && e.range && e.range.getSheet().getName();
+    if (n === SH.CFG) CacheService.getScriptCache().remove('cfg');
+    if (n === SH.CS) CacheService.getScriptCache().remove('sites');
+  } catch (err) {}
 }
 
 function setup() {
@@ -96,6 +100,14 @@ function setup() {
     'Lần cuối', 'Đếm ngoài', 'Ra vùng lúc (ms)', 'Số lần rời', 'Phút ngoài', 'Nền tảng', 'Mất tín hiệu', 'Họ tên',
     'Vĩ độ cuối', 'Kinh độ cuối', 'Cờ đã ghi']);
   ht.getRange('A:B').setNumberFormat('@'); ht.getRange('G:G').setNumberFormat('@');
+  if (!dd.getRange(1, 22).getValue()) dd.getRange(1, 22).setValue('Cơ sở').setFontWeight('bold').setBackground('#b3261e').setFontColor('#ffffff');
+  var cs = getOrCreateSheet_(SH.CS, ['Mã', 'Tên cơ sở', 'Địa chỉ', 'Vĩ độ', 'Kinh độ', 'Bán kính điểm danh (m)', 'Bán kính rời vùng (m)', 'Đang dùng (TRUE/FALSE)']);
+  cs.getRange('A:H').setNumberFormat('@');
+  if (cs.getLastRow() < 2) {
+    var c0 = cfg_();
+    cs.appendRow(['KG', c0.TEN_BENH_VIEN, c0.DIA_CHI, c0.VI_DO, c0.KINH_DO, c0.BAN_KINH_DIEM_DANH_M, c0.BAN_KINH_ROI_VUNG_M, 'TRUE']);
+    cs.appendRow(['NDCT', 'Bệnh viện Nhi Đồng Cần Thơ', '345 Nguyễn Văn Cừ, Ninh Kiều, Cần Thơ', '10.0171240', '105.7391971', '20', '60', 'TRUE']);
+  }
   var gv = getOrCreateSheet_(SH.GV, ['Tài khoản', 'Mật khẩu', 'Họ tên giảng viên', 'Nhóm phụ trách (để trống = tất cả)', 'Ghi chú']);
   gv.getRange('A:B').setNumberFormat('@');
   if (gv.getLastRow() < 2) gv.appendRow(['gv01', 'DoiMatKhau@2026', 'ThS. BS. Giảng viên mẫu', '', 'Tài khoản mẫu: đổi mật khẩu và họ tên trước khi dùng']);
@@ -184,9 +196,11 @@ function handle_(d) {
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 function publicConfig_(c) {
+  var sites = sites_(c), s0 = sites[0];
   return {
-    hospital: c.TEN_BENH_VIEN, address: c.DIA_CHI, lat: num_(c.VI_DO), lng: num_(c.KINH_DO),
-    checkinRadius: num_(c.BAN_KINH_DIEM_DANH_M), leaveRadius: num_(c.BAN_KINH_ROI_VUNG_M),
+    sites: sites,
+    hospital: s0.name, address: s0.address, lat: s0.lat, lng: s0.lng,
+    checkinRadius: s0.r1, leaveRadius: s0.r2,
     gpsTolerance: num_(c.SAI_SO_GPS_CHO_PHEP_M), gpsMaxAcc: num_(c.SAI_SO_GPS_TOI_DA_M),
     openTime: c.GIO_MO_DIEM_DANH, deadline: c.GIO_HAN_DIEM_DANH, endTime: c.GIO_KET_THUC_THEO_DOI,
     schoolDays: String(c.NGAY_HOC), pingMinutes: num_(c.CHU_KY_GUI_VI_TRI_PHUT),
@@ -224,7 +238,7 @@ function apiStatus_(d) {
       deviceMatch: !bool_(c.KHOA_1_THIET_BI) || !st.device || st.device === d.deviceId },
     today: {
       date: date, schoolDay: isSchoolDay_(c, now),
-      checkin: rec ? { time: rec.time, status: rec.status, late: rec.late } : null,
+      checkin: rec ? { time: rec.time, status: rec.status, late: rec.late, site: rec.site } : null,
       slots: rec ? slotStatus_(c, now, rec) : [],
       live: ht && ht.date === date ? { state: ht.state, dist: ht.dist } : null
     },
@@ -287,7 +301,8 @@ function apiEnroll_(d) {
 }
 
 /* ---------- kiểm tra chung cho điểm danh và xác nhận ---------- */
-function verify_(d, c, date, radius, kindLabel) {
+function verify_(d, c, date, mode, kindLabel, site) {
+  var radius = mode === 'in' ? site.r1 : site.r2;
   var mssv = normId_(d.mssv);
   var all = allStudents_();
   var st = null;
@@ -327,9 +342,9 @@ function verify_(d, c, date, radius, kindLabel) {
     log_(date, mssv, st.name, 'NGHI_GIA_LAP', '', acc, lat, lng, kindLabel + ': các lần đọc GPS giống hệt nhau');
   }
   if (acc > num_(c.SAI_SO_GPS_TOI_DA_M)) return { err: 'GPS chưa đủ chính xác (±' + Math.round(acc) + ' m). Ra chỗ thoáng, chờ vài giây rồi thử lại.' };
-  var dist = haversine_(lat, lng, num_(c.VI_DO), num_(c.KINH_DO));
+  var dist = haversine_(lat, lng, site.lat, site.lng);
   if (effDist_(dist, acc, c) > radius) {
-    return { err: 'Bạn đang cách tâm ' + c.TEN_BENH_VIEN + ' khoảng ' + Math.round(dist) + ' m, ngoài bán kính ' + radius + ' m.' };
+    return { err: 'Bạn đang cách tâm ' + site.name + ' khoảng ' + Math.round(dist) + ' m, ngoài bán kính ' + radius + ' m.' };
   }
 
   // Khuôn mặt: khớp với chính SV và SV phải là người gần nhất (so 1:N)
@@ -351,7 +366,7 @@ function verify_(d, c, date, radius, kindLabel) {
     log_(date, mssv, st.name, 'MAT_GIONG_SV_KHAC', Math.round(dist), acc, lat, lng, kindLabel + ', gần MSSV ' + nearestId + ' hơn');
     return { err: 'Khuôn mặt trùng với sinh viên khác. Mỗi sinh viên tự điểm danh cho mình.' };
   }
-  return { st: st, mssv: mssv, lat: lat, lng: lng, acc: acc, dist: dist, own: own };
+  return { st: st, mssv: mssv, lat: lat, lng: lng, acc: acc, dist: dist, own: own, site: site };
 }
 
 /* ---------- checkin ---------- */
@@ -369,7 +384,8 @@ function apiCheckin_(d) {
   if (now.getTime() >= deadline && String(d.note || '').trim().length < 10) {
     return { ok: false, msg: 'Sau ' + c.GIO_HAN_DIEM_DANH + ' phải ghi chú giải thích lý do (ít nhất 10 ký tự) rồi mới điểm danh.' };
   }
-  var v = verify_(d, c, date, num_(c.BAN_KINH_DIEM_DANH_M), 'Điểm danh');
+  var site = siteFor_(c, d.site, d.lat, d.lng);
+  var v = verify_(d, c, date, 'in', 'Điểm danh', site);
   if (v.err) return { ok: false, msg: v.err };
   var st = v.st, mssv = v.mssv;
 
@@ -380,7 +396,7 @@ function apiCheckin_(d) {
 
   var file = savePhoto_(d.photo, folderPath_(['Anh diem danh', date.substr(0, 7), date]),
     date + '_' + fmt_(now, 'HHmmss') + '_' + mssv + '_' + slug_(st.name) + '.jpg',
-    'Điểm danh ' + st.name + ' (' + mssv + ') lúc ' + timeStr + ' ngày ' + fmt_(now, 'dd/MM/yyyy') + ' – ' + c.TEN_BENH_VIEN + ' – ' + APP.BRAND);
+    'Điểm danh ' + st.name + ' (' + mssv + ') lúc ' + timeStr + ' ngày ' + fmt_(now, 'dd/MM/yyyy') + ' – ' + site.name + ' – ' + APP.BRAND);
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -395,7 +411,7 @@ function apiCheckin_(d) {
     var note = String(d.note || '').substr(0, 500);
     sheet_(SH.DD).appendRow([date, timeStr, mssv, st.name, st.group, status, lateMin, Math.round(v.dist), Math.round(v.acc),
       v.lat, v.lng, Math.round(v.own * 1000) / 1000, 'Đạt (nhắm mở mắt)', note,
-      '=HYPERLINK("' + file.getUrl() + '";"Xem ảnh")', '', 0, 0, d.platform || '', d.deviceId || '', file.getId()]);
+      '=HYPERLINK("' + file.getUrl() + '";"Xem ảnh")', '', 0, 0, d.platform || '', d.deviceId || '', file.getId(), site.code]);
     setLive_(mssv, st.name, date, { state: 'TRONG', dist: Math.round(v.dist), acc: Math.round(v.acc), last: now.getTime(),
       outCount: 0, outSince: '', leaves: 0, outMin: 0, platform: d.platform || '', lost: false, lat: v.lat, lng: v.lng, flags: '' });
     log_(date, mssv, st.name, 'DIEM_DANH', Math.round(v.dist), Math.round(v.acc), v.lat, v.lng,
@@ -403,7 +419,7 @@ function apiCheckin_(d) {
     if (!st.device && d.deviceId) sheet_(SH.SV).getRange(st.row, 7).setValue(d.deviceId);
   } finally { lock.releaseLock(); }
   var rec = findCheckin_(date, mssv);
-  return { ok: true, time: timeStr, date: date, status: status, late: lateMin, dist: Math.round(v.dist),
+  return { ok: true, time: timeStr, date: date, status: status, late: lateMin, dist: Math.round(v.dist), site: site.code,
     slots: slotStatus_(c, now, rec),
     msg: onTime ? 'Điểm danh thành công – đúng giờ.' : 'Điểm danh thành công – trễ ' + lateMin + ' phút.' };
 }
@@ -420,7 +436,7 @@ function apiConfirm_(d) {
   if (!slot) return { ok: false, msg: 'Hiện không trong khung giờ xác nhận.' };
   if (rec.confirms.indexOf(slot) >= 0) return { ok: false, msg: 'Bạn đã xác nhận mốc ' + slot + ' rồi.' };
 
-  var v = verify_(d, c, date, num_(c.BAN_KINH_ROI_VUNG_M), 'Xác nhận ' + slot);
+  var v = verify_(d, c, date, 'out', 'Xác nhận ' + slot, siteFor_(c, rec.site || d.site, d.lat, d.lng));
   if (v.err) return { ok: false, msg: v.err };
   var file = savePhoto_(d.photo, folderPath_(['Anh xac nhan giua ca', date.substr(0, 7), date]),
     date + '_' + slot.replace(':', '') + '_' + mssv + '_' + slug_(v.st.name) + '.jpg',
@@ -467,7 +483,8 @@ function apiPingCore_(d) {
     var lat = Number(d.lat), lng = Number(d.lng), acc = Number(d.acc);
     if (!isFinite(lat) || !isFinite(lng)) return { ok: false, msg: 'Thiếu vị trí' };
     if (!isFinite(acc)) acc = 999;
-    var dist = haversine_(lat, lng, num_(c.VI_DO), num_(c.KINH_DO));
+    var site = siteFor_(c, rec.site, lat, lng);
+    var dist = haversine_(lat, lng, site.lat, site.lng);
     var flags = String(live.flags || '');
     var flagOnce = function (code, detail) {
       if (flags.indexOf(code + ';') >= 0) return;
@@ -496,9 +513,10 @@ function apiPingCore_(d) {
     live.lat = lat; live.lng = lng;
     live.platform = d.platform || live.platform;
 
-    if (acc <= num_(c.SAI_SO_GPS_TOI_DA_M)) {
+    // Chỉ xét rời vùng trong khung giờ kiểm soát (từ giờ hạn điểm danh đến hết ca)
+    if (acc <= num_(c.SAI_SO_GPS_TOI_DA_M) && minOfDay_(now) >= hhmm_(c.GIO_HAN_DIEM_DANH)) {
       var eff = effDist_(dist, acc, c);
-      var R = num_(c.BAN_KINH_ROI_VUNG_M);
+      var R = site.r2;
       live.dist = Math.round(dist); live.acc = Math.round(acc);
       if (live.state !== 'NGOAI') {
         if (eff > R) {
@@ -510,7 +528,7 @@ function apiPingCore_(d) {
             log_(date, mssv, name, 'ROI_VUNG', Math.round(dist), Math.round(acc), lat, lng,
               'Ra ngoài bán kính ' + R + ' m từ khoảng ' + fmt_(new Date(Number(live.outSince)), 'HH:mm'));
             if (bool_(c.CANH_BAO_EMAIL_KHI_ROI_VUNG)) {
-              notify_('[BV TLS] ' + name + ' rời khỏi ' + c.TEN_BENH_VIEN,
+              notify_('[BV TLS] ' + name + ' rời khỏi ' + site.name,
                 name + ' (' + mssv + ') rời bán kính ' + R + ' m lúc ' + fmt_(now, 'HH:mm') + ', cách tâm ' + Math.round(dist) + ' m.\n' +
                 'Bản đồ: https://maps.google.com/?q=' + lat + ',' + lng + '\n\nTừ BV TLS – ' + APP.CREDIT);
             }
@@ -563,7 +581,7 @@ function tick() {
       continue;
     }
     var lost = r[12] === true || r[12] === 'TRUE';
-    if (String(r[11]) === 'android' && !lost && now.getTime() - Number(r[5]) > lostAfter) {
+    if (String(r[11]) === 'android' && !lost && m >= hhmm_(c.GIO_HAN_DIEM_DANH) && now.getTime() - Number(r[5]) > lostAfter) {
       sh.getRange(i + 1, 13).setValue(true);
       log_(date, normId_(r[0]), r[13], 'MAT_TIN_HIEU', r[3], r[4], '', '', 'Không nhận vị trí từ ' + fmt_(new Date(Number(r[5])), 'HH:mm') +
         ' (tắt GPS, tắt app, hết pin hoặc mất mạng)');
@@ -611,11 +629,12 @@ function makeReport_(date, kind) {
   p0.setText('BV TLS – BỆNH VIỆN TIỀN LÂM SÀNG');
   styleP_(p0, { size: 10, bold: true });
   para_(body, 'BÁO CÁO ĐIỂM DANH LÂM SÀNG', { size: 16, bold: true, align: A.CENTER, before: 10 });
-  para_(body, 'Cơ sở thực tập: ' + c.TEN_BENH_VIEN, { size: 12, align: A.CENTER });
+  var siteNames = sites_(c).map(function (x) { return x.name; });
+  para_(body, 'Cơ sở thực tập: ' + siteNames.join(', '), { size: 12, align: A.CENTER });
   para_(body, 'Ngày ' + dateVN + ' – báo cáo ' + kindVN + ', lập lúc ' + fmt_(now, 'HH:mm'), { size: 11, italic: true, align: A.CENTER });
   para_(body, 'Mục đích: ' + PURPOSE.charAt(0).toLowerCase() + PURPOSE.slice(1) + '.', { size: 10, italic: true, align: A.CENTER, after: 10 });
   para_(body, 'Tổng số sinh viên: ' + students.length + '   |   Đúng giờ (trước ' + c.GIO_HAN_DIEM_DANH + '): ' + onTime +
-    '   |   Trễ: ' + late + '   |   Vắng: ' + absent.length + '   |   Có rời vùng > ' + c.BAN_KINH_ROI_VUNG_M + ' m: ' +
+    '   |   Trễ: ' + late + '   |   Vắng: ' + absent.length + '   |   Có rời vùng: ' +
     Object.keys(leaveIds).length + '   |   Nghi/giả lập vị trí: ' + Object.keys(fakeIds).length, { size: 11, bold: true });
 
   para_(body, '1. Danh sách đã điểm danh', { size: 12, bold: true, before: 10 });
@@ -633,7 +652,7 @@ function makeReport_(date, kind) {
         img.setWidth(W).setHeight(Math.round(h * W / w));
       } catch (e) { imgCell.setText('(không tải được ảnh)'); }
       tr.appendTableCell(r[3] + '\n' + r[2] + (r[4] ? '\n' + r[4] : '') + (fakeIds[normId_(r[2])] ? '\n(!) Nghi giả lập vị trí' : ''));
-      tr.appendTableCell(fmtTimeCell_(r[1]) + '\n' + r[7] + ' m (±' + r[8] + ')');
+      tr.appendTableCell(fmtTimeCell_(r[1]) + '\n' + siteName_(c, r[21]) + '\n' + r[7] + ' m (±' + r[8] + ')');
       tr.appendTableCell(r[5] === 'Đúng giờ' ? 'Đúng giờ' : 'Trễ ' + r[6] + ' phút');
       tr.appendTableCell(slotSummary_(c, now, date, { time: fmtTimeCell_(r[1]), confirms: splitList_(r[15]) }));
       tr.appendTableCell((r[16] || 0) + ' lần' + (r[17] ? '\n' + r[17] + ' phút' : ''));
@@ -699,12 +718,12 @@ function makeReport_(date, kind) {
   while (old.hasNext()) old.next().setTrashed(true);
   var docFile = DriveApp.getFileById(doc.getId());
   var pdf = folder.createFile(docFile.getAs(MimeType.PDF).setName(name));
-  pdf.setDescription('Báo cáo điểm danh ' + dateVN + ' – ' + c.TEN_BENH_VIEN + ' – Từ BV TLS – ' + APP.CREDIT);
+  pdf.setDescription('Báo cáo điểm danh ' + dateVN + ' – ' + siteNames.join(', ') + ' – Từ BV TLS – ' + APP.CREDIT);
   docFile.setTrashed(true);
 
   if (bool_(c.GUI_EMAIL_BAO_CAO)) {
     notify_('[BV TLS] Báo cáo điểm danh ' + dateVN + ' – ' + kindVN,
-      'Báo cáo điểm danh lâm sàng tại ' + c.TEN_BENH_VIEN + ' ngày ' + dateVN + '.\n' +
+      'Báo cáo điểm danh lâm sàng tại ' + siteNames.join(', ') + ' ngày ' + dateVN + '.\n' +
       'Đúng giờ: ' + onTime + ' | Trễ: ' + late + ' | Vắng: ' + absent.length + ' | Có rời vùng: ' + Object.keys(leaveIds).length +
       ' | Nghi giả lập: ' + Object.keys(fakeIds).length + '\n\nFile trên Drive: ' + pdf.getUrl() + '\n\nTừ BV TLS – ' + APP.CREDIT, [pdf.getBlob()]);
   }
@@ -835,7 +854,7 @@ function findCheckin_(date, mssv) {
   for (var i = vals.length - 1; i >= 1; i--) {
     var r = vals[i];
     if (fmtDateCell_(r[0]) === date && normId_(r[2]) === mssv) {
-      return { row: i + 1, time: fmtTimeCell_(r[1]), name: r[3], status: r[5], late: r[6], confirms: splitList_(r[15]) };
+      return { row: i + 1, time: fmtTimeCell_(r[1]), name: r[3], status: r[5], late: r[6], confirms: splitList_(r[15]), site: String(r[21] || '') };
     }
   }
   return null;
@@ -1043,7 +1062,7 @@ function apiLecOverview_(d) {
     var r = dd[s.mssv], h = ht[s.mssv];
     return {
       mssv: s.mssv, name: s.name, group: s.group, enrolled: !!s.desc,
-      checkin: r ? { time: fmtTimeCell_(r[1]).substr(0, 5), status: r[5], late: r[6], dist: r[7], note: String(r[13] || ''),
+      checkin: r ? { time: fmtTimeCell_(r[1]).substr(0, 5), status: r[5], late: r[6], dist: r[7], note: String(r[13] || ''), site: String(r[21] || ''), siteName: siteName_(c, r[21]),
         slots: slotSummary_(c, now, date, { time: fmtTimeCell_(r[1]), confirms: splitList_(r[15]) }).replace('\n', ' '),
         leaves: Number(r[16] || 0), outMin: Number(r[17] || 0), platform: String(r[18] || '') } : null,
       live: h ? { state: h[2], dist: h[3], last: h[6], lost: h[12] === true || h[12] === 'TRUE' } : null
@@ -1141,7 +1160,8 @@ function apiAnswer_(d) {
     m.sh.getRange(m.row, 10).setValue('Quá hạn');
     return { ok: false, msg: 'Yêu cầu đã quá hạn.' };
   }
-  var v = verify_(d, c, date, num_(c.BAN_KINH_ROI_VUNG_M), 'Xác nhận theo yêu cầu GV');
+  var recA = findCheckin_(date, mssv);
+  var v = verify_(d, c, date, 'out', 'Xác nhận theo yêu cầu GV', siteFor_(c, (recA && recA.site) || d.site, d.lat, d.lng));
   if (v.err) {
     m.sh.getRange(m.row, 13).setValue('Lần thử lỗi lúc ' + fmt_(now, 'HH:mm') + ': ' + v.err);
     return { ok: false, msg: v.err };
@@ -1197,4 +1217,53 @@ function newReg_(c, mssv, code, fullName) {
   if (name.split(' ').length < 2 || name.length < 5) return { err: 'Nhập đầy đủ họ và tên (có dấu), ví dụ: Nguyễn Văn An.' };
   name = name.split(' ').map(function (w) { return w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase(); }).join(' ');
   return { name: name, group: group };
+}
+
+
+/* ============================ CƠ SỞ THỰC TẬP ============================ */
+
+/** Các cơ sở đang dùng (sheet CoSo). Không có sheet thì dùng 1 cơ sở trong CauHinh. */
+function sites_(c) {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('sites');
+  if (hit) return JSON.parse(hit);
+  var out = [];
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.CS);
+  if (sh) {
+    sh.getDataRange().getDisplayValues().slice(1).forEach(function (r) {
+      var code = String(r[0] || '').trim().toUpperCase();
+      if (!code || String(r[7]).trim().toUpperCase() === 'FALSE') return;
+      var lat = num_(r[3]), lng = num_(r[4]);
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      out.push({ code: code, name: String(r[1] || code).trim(), address: String(r[2] || '').trim(), lat: lat, lng: lng,
+        r1: num_(r[5]) || num_(c.BAN_KINH_DIEM_DANH_M), r2: num_(r[6]) || num_(c.BAN_KINH_ROI_VUNG_M) });
+    });
+  }
+  if (!out.length) {
+    out.push({ code: 'KG', name: c.TEN_BENH_VIEN, address: c.DIA_CHI, lat: num_(c.VI_DO), lng: num_(c.KINH_DO),
+      r1: num_(c.BAN_KINH_DIEM_DANH_M), r2: num_(c.BAN_KINH_ROI_VUNG_M) });
+  }
+  cache.put('sites', JSON.stringify(out), 120);
+  return out;
+}
+
+/** Chọn cơ sở theo mã; không có mã thì lấy cơ sở gần vị trí nhất. */
+function siteFor_(c, code, lat, lng) {
+  var list = sites_(c);
+  var k = String(code || '').trim().toUpperCase();
+  for (var i = 0; i < list.length; i++) if (list[i].code === k) return list[i];
+  lat = Number(lat); lng = Number(lng);
+  if (isFinite(lat) && isFinite(lng) && String(lat) !== '') {
+    var best = list[0], bd = 1e12;
+    list.forEach(function (s) { var dd = haversine_(lat, lng, s.lat, s.lng); if (dd < bd) { bd = dd; best = s; } });
+    return best;
+  }
+  return list[0];
+}
+
+function siteName_(c, code) {
+  var k = String(code || '').trim().toUpperCase();
+  var list = sites_(c);
+  for (var i = 0; i < list.length; i++) if (list[i].code === k) return list[i].name;
+  return k || list[0].name;
 }

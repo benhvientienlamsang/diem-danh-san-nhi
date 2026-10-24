@@ -166,8 +166,8 @@
         <p><b class="js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</b></p>
         <ul class="dash">
           <li>Điểm danh tại <b class="js-hospital">Bệnh viện Sản Nhi Kiên Giang</b>, trong bán kính <b class="js-r1">20</b> m. Điểm danh sau <b class="js-deadline">07:00</b> bắt buộc ghi chú giải thích lý do.</li>
-          <li>Từ lúc điểm danh đến <b class="js-end">11:00</b>, ứng dụng ghi nhận vị trí. Ra xa quá <b class="js-r2">60</b> m sẽ bị ghi “rời vùng” vào báo cáo.</li>
-          <li>Trong ca có các mốc xác nhận khuôn mặt <b class="js-slots">08:30, 09:30, 10:30</b>, mỗi mốc mở <b class="js-win">15</b> phút.</li>
+          <li>Từ <b class="js-deadline">07:00</b> đến <b class="js-end">11:00</b>, ứng dụng tự động gửi vị trí, sinh viên không phải thao tác gì thêm. Ra xa quá <b class="js-r2">60</b> m sẽ bị ghi “rời vùng” vào báo cáo.</li>
+          <li id="ruleSlots">Trong ca có các mốc xác nhận khuôn mặt <b class="js-slots">08:30, 09:30, 10:30</b>, mỗi mốc mở <b class="js-win">15</b> phút.</li>
           <li>Ứng dụng giả lập vị trí (fake GPS) bị chặn và ghi nhận vi phạm.</li>
           <li>Ảnh khuôn mặt, vị trí và ghi chú được lưu trên Google Drive của BV TLS, chỉ phục vụ quản lý thực tập. Sau <b class="js-end">11:00</b> ứng dụng không theo dõi vị trí.</li>
         </ul>
@@ -239,6 +239,12 @@
             <button class="btn ghost small" id="btnRefreshLoc">Định vị lại</button>
           </div>
         </div>
+      </div>
+
+      <div class="card" id="cardSite" hidden>
+        <h3>Cơ sở thực tập hôm nay</h3>
+        <div class="class-list" id="siteList"></div>
+        <p class="hint" id="siteHint"></p>
       </div>
 
       <div class="card" id="cardCheckin" hidden>

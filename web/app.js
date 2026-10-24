@@ -20,14 +20,14 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
 
   const S = {
     session: load('dd_session'),
     cfg: {
       hospital: 'Bệnh viện Sản Nhi Kiên Giang', lat: 9.9731417, lng: 105.0975708, checkinRadius: 20, leaveRadius: 60,
       gpsTolerance: 10, gpsMaxAcc: 50, openTime: '05:30', deadline: '07:00', endTime: '11:00', schoolDays: '2,3,4,5,6',
-      pingMinutes: 2, slots: ['08:30', '09:30', '10:30'], slotWindow: 15,
+      pingMinutes: 2, slots: [], slotWindow: 15,
       purpose: 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00'
     },
     offset: 0, deviceId: null, student: null, today: null, slots: [],
@@ -94,14 +94,61 @@
 
   function applyConfig(c) {
     Object.assign(S.cfg, c);
-    $('hospitalName').textContent = S.cfg.hospital;
-    fill('js-hospital', S.cfg.hospital); fill('js-r1', S.cfg.checkinRadius); fill('js-r2', S.cfg.leaveRadius);
+    fill('js-hospital', siteList().map(x => x.name).join(' hoặc '));
     fill('js-deadline', S.cfg.deadline); fill('js-end', S.cfg.endTime); fill('js-win', S.cfg.slotWindow);
     fill('js-slots', (S.cfg.slots || []).join(', ') || 'không có');
+    $('ruleSlots').hidden = !(S.cfg.slots || []).length;
     fill('js-purpose', S.cfg.purpose + '.');
-    $('lblIn').textContent = S.cfg.checkinRadius + ' m'; $('lblOut').textContent = S.cfg.leaveRadius + ' m';
-    $('radar').querySelector('.ring-in').setAttribute('r', (74 * S.cfg.checkinRadius / S.cfg.leaveRadius).toFixed(1));
-    $('lblIn').setAttribute('y', (80 - 74 * S.cfg.checkinRadius / S.cfg.leaveRadius - 4).toFixed(0));
+    setSite(activeSiteCode());
+  }
+
+  /* ---------- cơ sở thực tập (nhiều bệnh viện) ---------- */
+  S.siteCode = load('dd_site') || '';
+  S.sitePicked = !!S.siteCode;
+  function siteList() {
+    return (S.cfg.sites && S.cfg.sites.length) ? S.cfg.sites
+      : [{ code: 'KG', name: S.cfg.hospital, address: S.cfg.address, lat: S.cfg.lat, lng: S.cfg.lng, r1: S.cfg.checkinRadius, r2: S.cfg.leaveRadius }];
+  }
+  /** Đã điểm danh thì khóa theo cơ sở đã điểm danh, chưa thì theo lựa chọn hoặc cơ sở gần nhất. */
+  function activeSiteCode() {
+    const ci = S.today && S.today.checkin;
+    return (ci && ci.site) || S.siteCode;
+  }
+  function setSite(code, manual) {
+    const list = siteList();
+    const site = list.find(x => x.code === code) || list[0];
+    S.siteCode = site.code;
+    if (manual) { S.sitePicked = true; save('dd_site', site.code); }
+    S.cfg.hospital = site.name; S.cfg.address = site.address; S.cfg.lat = site.lat; S.cfg.lng = site.lng;
+    S.cfg.checkinRadius = site.r1; S.cfg.leaveRadius = site.r2;
+    $('hospitalName').textContent = site.name;
+    fill('js-r1', site.r1); fill('js-r2', site.r2);
+    $('lblIn').textContent = site.r1 + ' m'; $('lblOut').textContent = site.r2 + ' m';
+    $('radar').querySelector('.ring-in').setAttribute('r', (74 * site.r1 / site.r2).toFixed(1));
+    $('lblIn').setAttribute('y', (80 - 74 * site.r1 / site.r2 - 4).toFixed(0));
+    renderSites();
+    if (S.loc) drawRadar(S.loc);
+  }
+  function renderSites() {
+    const card = $('cardSite'); if (!card) return;
+    const list = siteList(), ci = S.today && S.today.checkin;
+    card.hidden = !!ci || list.length < 2;
+    if (card.hidden) return;
+    $('siteList').innerHTML = list.map(x => {
+      const d = S.loc ? Math.round(haversine(S.loc.lat, S.loc.lng, x.lat, x.lng)) : null;
+      const dTxt = d === null ? '' : d >= 1000 ? (d / 1000).toFixed(1) + ' km' : d + ' m';
+      return '<label class="class-opt"><input type="radio" name="site" value="' + esc(x.code) + '"' + (x.code === S.siteCode ? ' checked' : '') + '>' +
+        '<span>' + esc(x.name) + '<small>' + esc(x.address || '') + (dTxt ? ' · cách bạn ' + dTxt : '') + '</small></span></label>';
+    }).join('');
+    $('siteList').querySelectorAll('input[name="site"]').forEach(r => r.onchange = () => setSite(r.value, true));
+    $('siteHint').textContent = S.sitePicked ? 'Bạn đã tự chọn cơ sở.' : 'App tự chọn cơ sở gần bạn nhất. Có thể đổi nếu chọn sai.';
+  }
+  function autoPickSite(l) {
+    if (S.sitePicked || (S.today && S.today.checkin)) return;
+    const list = siteList(); if (list.length < 2) return;
+    const near = list.reduce((a, b) => (haversine(l.lat, l.lng, b.lat, b.lng) < haversine(l.lat, l.lng, a.lat, a.lng) ? b : a));
+    if (near.code !== S.siteCode) setSite(near.code);
+    else if (!renderSites._t || Date.now() - renderSites._t > 15000) { renderSites._t = Date.now(); renderSites(); }
   }
 
   async function getDeviceId() {
@@ -248,6 +295,7 @@
     fill('js-meta', 'MSSV ' + st.mssv + (st.group ? ' · ' + st.group : ''));
     show('scr-home');
     const ci = t && t.checkin;
+    setSite(activeSiteCode());
     $('cardCheckin').hidden = !!ci;
     $('cardDone').hidden = !ci;
     if (ci) {
@@ -372,6 +420,7 @@
   function onLoc(l) {
     S.loc = l;
     S.samples.push(l); if (S.samples.length > 30) S.samples.shift();
+    autoPickSite(l);
     drawRadar(l);
     if (l.simulated) showFake('Phát hiện vị trí giả lập trên điện thoại. Tắt ứng dụng fake GPS, nếu không bạn sẽ bị ghi vi phạm.');
     if (S.tracking) maybeSend(l);
@@ -442,7 +491,8 @@
     $('trackPill').textContent = 'Đang theo dõi'; $('trackPill').className = 'pill ok';
     $('trackText').textContent = NATIVE
       ? 'App ghi nhận vị trí kể cả khi tắt màn hình, đến ' + S.cfg.endTime + '. Không tắt GPS, không vuốt tắt app. Nếu điện thoại hay tự tắt app, vào cài đặt pin và chọn “Không hạn chế” cho Điểm danh.'
-      : 'iPhone chỉ gửi vị trí khi đang mở app Điểm danh. Mở app tại mỗi mốc xác nhận giữa ca. Ra khỏi ' + S.cfg.leaveRadius + ' m khi mở app sẽ bị ghi nhận.';
+      : 'iPhone chỉ gửi vị trí khi đang mở app Điểm danh (Apple không cho web chạy nền). ' +
+        ((S.cfg.slots || []).length ? 'Mở app tại mỗi mốc xác nhận giữa ca. ' : 'Thỉnh thoảng mở app để gửi vị trí. ') + 'Ra khỏi ' + S.cfg.leaveRadius + ' m khi mở app sẽ bị ghi nhận.';
     $('btnAppSettings').hidden = !NATIVE;
     clearTimeout(S.endTimer);
     const msLeft = (hhmm(S.cfg.endTime) - vn().min) * 60000 - vn().s * 1000;
@@ -574,7 +624,7 @@
           (note ? 'Ghi chú: ' + note + '. ' : '') + 'Giờ chính thức là giờ máy chủ nhận được ảnh.',
           async () => {
             const r = await api(kind, { id: req && req.id, mssv: S.session.mssv, lat: l.lat, lng: l.lng, acc: l.acc, simulated: !!(l.simulated || fix.simulated),
-              identicalSamples: fix.identicalSamples, antiFake: af, descriptor: f.descriptor, faceCount: 1, liveness: true, photo, note });
+              identicalSamples: fix.identicalSamples, antiFake: af, site: S.siteCode, descriptor: f.descriptor, faceCount: 1, liveness: true, photo, note });
             if (!r.ok) throw new Error(r.msg);
             return r;
           });
@@ -583,7 +633,7 @@
         toast(ans.msg, 5000);
         if (kind === 'checkin') {
           save('dd_photo_' + ans.date, photo);
-          S.today.checkin = { time: ans.time, status: ans.status, late: ans.late };
+          S.today.checkin = { time: ans.time, status: ans.status, late: ans.late, site: ans.site || S.siteCode };
           $('inNote').value = '';
         }
         if (ans.slots) S.slots = ans.slots;
@@ -675,13 +725,21 @@
       const r = this.data, list = r.students;
       const stat = { all: list.length, ok: 0, late: 0, absent: 0, warn: 0 };
       list.forEach(st => { const x = this.statusOf(st); if (x.k === 'absent') stat.absent++; else if (x.k === 'warn') stat.warn++; else stat.ok++; if (st.checkin && st.checkin.status !== 'Đúng giờ') stat.late++; });
-      $('lecInfo').textContent = vn().dmy + ' · cập nhật ' + vn().hm + ' · ' + r.config.hospital;
+      $('lecInfo').textContent = vn().dmy + ' · cập nhật ' + vn().hm + ' · ' + (r.config.sites || [{ name: r.config.hospital }]).map(x => x.name).join(', ');
       $('lecStats').innerHTML = [['Tổng', stat.all], ['Đã điểm danh', stat.all - stat.absent], ['Trễ', stat.late], ['Vắng', stat.absent], ['Ngoài vùng/mất tín hiệu', stat.warn]]
         .map(x => '<div><b>' + x[1] + '</b><small>' + x[0] + '</small></div>').join('');
-      const shown = list.filter(st => { const k = this.statusOf(st).k; return this.filter === 'all' || this.filter === k || (this.filter === 'in' && k !== 'absent'); });
+      const sel = $('lecFilter');
+      if (!sel.dataset.sites && (r.config.sites || []).length > 1) {
+        sel.dataset.sites = '1';
+        r.config.sites.forEach(x => { const o = document.createElement('option'); o.value = 'site:' + x.code; o.textContent = 'Tại ' + x.name; sel.appendChild(o); });
+      }
+      const shown = list.filter(st => {
+        if (this.filter.indexOf('site:') === 0) return st.checkin && st.checkin.site === this.filter.slice(5);
+        const k = this.statusOf(st).k; return this.filter === 'all' || this.filter === k || (this.filter === 'in' && k !== 'absent');
+      });
       $('lecList').innerHTML = shown.map(st => {
         const x = this.statusOf(st), c = st.checkin, l = st.live;
-        const sub = c ? 'Điểm danh ' + c.time + (l && l.dist !== '' ? ' · cách ' + l.dist + ' m' : '') + (l && l.last ? ' · cập nhật ' + String(l.last).substr(0, 5) : '') +
+        const sub = c ? 'Điểm danh ' + c.time + ((r.config.sites || []).length > 1 && c.siteName ? ' tại ' + c.siteName : '') + (l && l.dist !== '' ? ' · cách ' + l.dist + ' m' : '') + (l && l.last ? ' · cập nhật ' + String(l.last).substr(0, 5) : '') +
           ' · giữa ca ' + c.slots + (c.leaves ? ' · rời vùng ' + c.leaves + ' lần' : '') + (c.platform === 'ios-web' ? ' · iPhone' : '') : (st.enrolled ? 'Đã đăng ký khuôn mặt' : 'Chưa đăng ký khuôn mặt');
         return '<label class="lec-row"><input type="checkbox" data-m="' + st.mssv + '"' + (this.sel.has(st.mssv) ? ' checked' : '') + '>' +
           '<span class="lec-main"><b>' + esc(st.name) + '</b><small>' + st.mssv + (st.group ? ' · ' + esc(st.group) : '') + '</small><small>' + esc(sub) + '</small>' +

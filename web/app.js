@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.5.0';
+  const VERSION = '1.5.3';
 
   const S = {
     session: load('dd_session'),
@@ -92,7 +92,12 @@
     return d;
   }
 
+  function showVersion() {
+    $('ver').textContent = 'App ' + VERSION + (S.serverVersion ? ' · máy chủ ' + S.serverVersion : '') +
+      (NATIVE ? ' · Android' : IS_IOS ? ' · iPhone (web)' : '');
+  }
   function applyConfig(c) {
+    if (c && c.version) { S.serverVersion = c.version; showVersion(); }
     Object.assign(S.cfg, c);
     fill('js-hospital', siteList().map(x => x.name).join(' hoặc '));
     fill('js-deadline', S.cfg.deadline); fill('js-end', S.cfg.endTime); fill('js-win', S.cfg.slotWindow);
@@ -117,12 +122,13 @@
   function setSite(code, manual) {
     const list = siteList();
     const site = list.find(x => x.code === code) || list[0];
-    S.siteCode = site.code;
+    const chosen = !!manual || S.sitePicked || !!(S.session && S.session.site) || !!(S.today && S.today.checkin && S.today.checkin.site);
+    if (chosen) S.siteCode = site.code;
     if (manual) { S.sitePicked = true; save('dd_site', site.code); if (S.session) { S.session.site = site.code; save('dd_session', S.session); } }
-    try { document.title = 'Điểm danh – ' + site.name; } catch (e) {}
+    try { if (chosen) document.title = 'Điểm danh – ' + site.name; } catch (e) {}
     S.cfg.hospital = site.name; S.cfg.address = site.address; S.cfg.lat = site.lat; S.cfg.lng = site.lng;
     S.cfg.checkinRadius = site.r1; S.cfg.leaveRadius = site.r2;
-    $('hospitalName').textContent = site.name;
+    $('hospitalName').textContent = load('dd_lec') ? 'Giảng viên · tất cả cơ sở' : chosen ? site.name : 'Chọn bệnh viện khi đăng nhập';
     fill('js-r1', site.r1); fill('js-r2', site.r2);
     $('lblIn').textContent = site.r1 + ' m'; $('lblOut').textContent = site.r2 + ' m';
     $('radar').querySelector('.ring-in').setAttribute('r', (74 * site.r1 / site.r2).toFixed(1));
@@ -164,7 +170,7 @@
 
   /* ============================ khởi động ============================ */
   async function boot() {
-    $('ver').textContent = 'Phiên bản ' + VERSION + (NATIVE ? ' · Android' : IS_IOS ? ' · iPhone (web)' : '');
+    showVersion();
     if (!NATIVE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     if (load('dd_lec')) { Lec.start(); return; }
     if (!gate()) return;
@@ -261,6 +267,7 @@
     box.innerHTML = '<p class="muted">Đang tải danh sách mã lớp…</p>';
     try {
       const r = await api('classes');
+      if (r && r.version) { S.serverVersion = r.version; showVersion(); }
       renderLoginSites((r && r.sites) || siteList());
       const list = (r && r.classes) || [];
       if (!list.length) { box.innerHTML = '<p class="form-msg">Giảng viên chưa nhập mã lớp. Liên hệ giảng viên.</p>'; return; }

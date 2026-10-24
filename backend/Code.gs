@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.3' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -60,6 +60,7 @@ function onOpen() {
     .addItem('Xóa thiết bị SV (dòng đang chọn)', 'menuResetDevice')
     .addSeparator()
     .addItem('Mở thư mục Drive', 'menuOpenFolder')
+    .addItem('Kiểm tra danh sách cơ sở', 'menuSites')
     .addToUi();
 }
 
@@ -101,13 +102,7 @@ function setup() {
     'Vĩ độ cuối', 'Kinh độ cuối', 'Cờ đã ghi']);
   ht.getRange('A:B').setNumberFormat('@'); ht.getRange('G:G').setNumberFormat('@');
   if (!dd.getRange(1, 22).getValue()) dd.getRange(1, 22).setValue('Cơ sở').setFontWeight('bold').setBackground('#b3261e').setFontColor('#ffffff');
-  var cs = getOrCreateSheet_(SH.CS, ['Mã', 'Tên cơ sở', 'Địa chỉ', 'Vĩ độ', 'Kinh độ', 'Bán kính điểm danh (m)', 'Bán kính rời vùng (m)', 'Đang dùng (TRUE/FALSE)']);
-  cs.getRange('A:H').setNumberFormat('@');
-  if (cs.getLastRow() < 2) {
-    var c0 = cfg_();
-    cs.appendRow(['KG', c0.TEN_BENH_VIEN, c0.DIA_CHI, c0.VI_DO, c0.KINH_DO, c0.BAN_KINH_DIEM_DANH_M, c0.BAN_KINH_ROI_VUNG_M, 'TRUE']);
-    cs.appendRow(['NDCT', 'Bệnh viện Nhi Đồng Cần Thơ', '345 Nguyễn Văn Cừ, Ninh Kiều, Cần Thơ', '10.0171240', '105.7391971', '20', '60', 'TRUE']);
-  }
+  ensureSitesSheet_(cfg_());
   var gv = getOrCreateSheet_(SH.GV, ['Tài khoản', 'Mật khẩu', 'Họ tên giảng viên', 'Nhóm phụ trách (để trống = tất cả)', 'Ghi chú']);
   gv.getRange('A:B').setNumberFormat('@');
   if (gv.getLastRow() < 2) gv.appendRow(['gv01', 'DoiMatKhau@2026', 'ThS. BS. Giảng viên mẫu', '', 'Tài khoản mẫu: đổi mật khẩu và họ tên trước khi dùng']);
@@ -174,7 +169,7 @@ function handle_(d) {
     switch (d.action) {
       case 'config': return json_({ ok: true, serverTime: Date.now(), config: publicConfig_(cfg_()) });
       case 'status': return json_(apiStatus_(d));
-      case 'classes': return json_({ ok: true, classes: classList_(cfg_()), sites: sites_(cfg_()) });
+      case 'classes': return json_({ ok: true, classes: classList_(cfg_()), sites: sites_(cfg_()), version: APP.VERSION });
       case 'rebind': return json_(apiRebind_(d));
       case 'enroll': return json_(apiEnroll_(d));
       case 'checkin': return json_(apiCheckin_(d));
@@ -275,7 +270,7 @@ function apiEnroll_(d) {
     for (var k = 0; k < all.length; k++) {
       var o = all[k];
       if (o.mssv === mssv) continue;
-      if (o.desc && euclid_(mean, o.desc) < num_(c.NGUONG_TRUNG_KHUON_MAT)) {
+      if (o.desc && euclid_(mean, o.desc) < thr_(c.NGUONG_TRUNG_KHUON_MAT, 0.45)) {
         log_('', mssv, st.name, 'DANG_KY_TRUNG_MAT', '', '', '', '', 'Trùng khuôn mặt với MSSV ' + o.mssv);
         return { ok: false, msg: 'Khuôn mặt này đã được đăng ký cho một MSSV khác. Liên hệ quản trị BV TLS.' };
       }
@@ -359,7 +354,7 @@ function verify_(d, c, date, mode, kindLabel, site) {
     var dd = euclid_(d.descriptor, all[j].desc);
     if (dd < nearestOther) { nearestOther = dd; nearestId = all[j].mssv; }
   }
-  if (own > num_(c.NGUONG_KHUON_MAT)) {
+  if (own > thr_(c.NGUONG_KHUON_MAT, 0.5)) {
     log_(date, mssv, st.name, 'MAT_KHONG_KHOP', Math.round(dist), acc, lat, lng, kindLabel + ', độ lệch ' + own.toFixed(3));
     return { err: 'Khuôn mặt không khớp với sinh viên ' + st.name + '. Đủ sáng, nhìn thẳng và thử lại.' };
   }
@@ -953,7 +948,38 @@ function notify_(subject, text, attachments) {
 
 function today_() { return fmt_(new Date(), 'yyyy-MM-dd'); }
 function fmt_(d, p) { return Utilities.formatDate(d, TZ, p); }
-function num_(v) { return Number(String(v).replace(',', '.')); }
+function num_(v) {
+  var t = String(v == null ? '' : v).trim().replace(/\s+/g, '');
+  if (/^-?\d+,\d+$/.test(t)) t = t.replace(',', '.');          // 0,5 kiểu Việt Nam
+  return Number(t);
+}
+/** Ngưỡng khuôn mặt hợp lệ trong khoảng 0.2–0.9, sai định dạng thì dùng mặc định. */
+function thr_(v, def) { var n = num_(v); return n >= 0.2 && n <= 0.9 ? n : def; }
+/** Đọc 1 số tọa độ: chấp nhận 9.97 | 9,97 | có khoảng trắng, ký hiệu độ. */
+function coordNum_(t) {
+  t = String(t || '').replace(/[°\s]/g, '');
+  if (/^-?\d+,\d+$/.test(t)) t = t.replace(',', '.');
+  var n = Number(t);
+  return isFinite(n) && t !== '' ? n : NaN;
+}
+/** Tách các số trong một ô: chấp nhận cả cặp "9.97314, 105.09757" dán từ Google Maps. */
+function coordList_(v) {
+  return String(v == null ? '' : v).trim().split(/\s*[;\/]\s*|,\s+|\s+/).map(coordNum_).filter(function (n) { return isFinite(n); });
+}
+function okLat_(n) { return isFinite(n) && n >= -90 && n <= 90 && n !== 0; }
+function okLng_(n) { return isFinite(n) && n >= -180 && n <= 180 && n !== 0; }
+/** Lấy vĩ độ, kinh độ từ 2 ô; nếu một ô chứa cả cặp tọa độ thì tự tách. */
+function latLng_(a, b) {
+  var la = coordList_(a), lb = coordList_(b);
+  var lat = la.length ? la[0] : NaN, lng = lb.length ? lb[lb.length - 1] : NaN;
+  if (la.length >= 2 && !okLng_(lng)) lng = la[1];
+  if (lb.length >= 2 && !okLat_(lat)) lat = lb[0];
+  return { lat: okLat_(lat) ? lat : NaN, lng: okLng_(lng) ? lng : NaN };
+}
+function kgLatLng_(c) {
+  var ll = latLng_(c.VI_DO, c.KINH_DO);
+  return { lat: isFinite(ll.lat) ? ll.lat : 9.9731417, lng: isFinite(ll.lng) ? ll.lng : 105.0975708 };
+}
 function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
 function truthy_(v) { return v === true || v === 'true' || v === 1 || v === '1'; }
 function normId_(v) { return String(v == null ? '' : v).trim().toUpperCase(); }
@@ -1229,19 +1255,20 @@ function sites_(c) {
   var hit = cache.get('sites');
   if (hit) return JSON.parse(hit);
   var out = [];
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.CS);
+  var sh = ensureSitesSheet_(c);
   if (sh) {
     sh.getDataRange().getDisplayValues().slice(1).forEach(function (r) {
       var code = String(r[0] || '').trim().toUpperCase();
       if (!code || String(r[7]).trim().toUpperCase() === 'FALSE') return;
-      var lat = num_(r[3]), lng = num_(r[4]);
+      var ll = latLng_(r[3], r[4]), lat = ll.lat, lng = ll.lng;
       if (!isFinite(lat) || !isFinite(lng)) return;
       out.push({ code: code, name: String(r[1] || code).trim(), address: String(r[2] || '').trim(), lat: lat, lng: lng,
         r1: num_(r[5]) || num_(c.BAN_KINH_DIEM_DANH_M), r2: num_(r[6]) || num_(c.BAN_KINH_ROI_VUNG_M) });
     });
   }
   if (!out.length) {
-    out.push({ code: 'KG', name: c.TEN_BENH_VIEN, address: c.DIA_CHI, lat: num_(c.VI_DO), lng: num_(c.KINH_DO),
+    var kg = kgLatLng_(c);
+    out.push({ code: 'KG', name: c.TEN_BENH_VIEN, address: c.DIA_CHI, lat: kg.lat, lng: kg.lng,
       r1: num_(c.BAN_KINH_DIEM_DANH_M), r2: num_(c.BAN_KINH_ROI_VUNG_M) });
   }
   cache.put('sites', JSON.stringify(out), 120);
@@ -1295,7 +1322,7 @@ function apiRebind_(d) {
     }
     if (o.desc) { var dd = euclid_(d.descriptor, o.desc); if (dd < nearestOther) { nearestOther = dd; nearestId = o.mssv; } }
   }
-  if (own > num_(c.NGUONG_KHUON_MAT) || nearestOther < own) {
+  if (own > thr_(c.NGUONG_KHUON_MAT, 0.5) || nearestOther < own) {
     log_(date, mssv, st.name, 'DOI_THIET_BI_LOI', '', '', '', '', 'Khuôn mặt không khớp (độ lệch ' + own.toFixed(3) + (nearestOther < own ? ', gần MSSV ' + nearestId + ' hơn' : '') + ')');
     return { ok: false, msg: 'Khuôn mặt không khớp với sinh viên ' + st.name + '. Đủ sáng, nhìn thẳng và thử lại, hoặc liên hệ giảng viên.' };
   }
@@ -1320,4 +1347,39 @@ function apiRebind_(d) {
   var r = apiStatus_({ mssv: mssv, deviceId: d.deviceId });
   r.msg = 'Đã chuyển sang điện thoại này.';
   return r;
+}
+
+
+/** Các cơ sở có sẵn. Sheet CoSo được tự tạo với các dòng này nếu chưa có. */
+var DEFAULT_SITES = [
+  ['NDCT', 'Bệnh viện Nhi Đồng Cần Thơ', '345 Nguyễn Văn Cừ, Ninh Kiều, Cần Thơ', '10.0171240', '105.7391971', '20', '60', 'TRUE']
+];
+
+/** Tạo sheet CoSo nếu chưa có, và bổ sung cơ sở mặc định còn thiếu (không ghi đè dòng anh đã sửa). */
+function ensureSitesSheet_(c) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SH.CS);
+  if (!sh) {
+    sh = getOrCreateSheet_(SH.CS, ['Mã', 'Tên cơ sở', 'Địa chỉ', 'Vĩ độ', 'Kinh độ', 'Bán kính điểm danh (m)', 'Bán kính rời vùng (m)', 'Đang dùng (TRUE/FALSE)']);
+    sh.getRange('A:H').setNumberFormat('@');
+    sh.setColumnWidth(2, 240); sh.setColumnWidth(3, 280);
+  }
+  var have = {};
+  sh.getDataRange().getDisplayValues().slice(1).forEach(function (r) { if (r[0]) have[String(r[0]).trim().toUpperCase()] = true; });
+  var rows = [];
+  if (!have.KG) { var kg = kgLatLng_(c); rows.push(['KG', c.TEN_BENH_VIEN, c.DIA_CHI, String(kg.lat), String(kg.lng), String(num_(c.BAN_KINH_DIEM_DANH_M) || 20), String(num_(c.BAN_KINH_ROI_VUNG_M) || 60), 'TRUE']); }
+  DEFAULT_SITES.forEach(function (r) { if (!have[r[0]]) rows.push(r); });
+  if (rows.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+    CacheService.getScriptCache().remove('sites');
+  }
+  return sh;
+}
+
+function menuSites() {
+  CacheService.getScriptCache().remove('sites');
+  var list = sites_(cfg_());
+  SpreadsheetApp.getUi().alert('Các cơ sở đang dùng (' + list.length + '):\n\n' + list.map(function (x) {
+    return x.code + ' – ' + x.name + '\n   ' + x.lat + ', ' + x.lng + ' | điểm danh ' + x.r1 + ' m, rời vùng ' + x.r2 + ' m';
+  }).join('\n'));
 }

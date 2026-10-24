@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.1.3';
+  const VERSION = '1.2.0';
 
   const S = {
     session: load('dd_session'),
@@ -115,6 +115,7 @@
   async function boot() {
     $('ver').textContent = 'Phiên bản ' + VERSION + (NATIVE ? ' · Android' : IS_IOS ? ' · iPhone (web)' : '');
     if (!NATIVE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (load('dd_lec')) { Lec.start(); return; }
     if (!gate()) return;
     S.deviceId = await getDeviceId();
     setInterval(tick, 1000);
@@ -126,18 +127,20 @@
   function gate() {
     if (NATIVE) return true;
     const body = $('gateBody');
+    const lecBtn = () => { const b = document.createElement('button'); b.className = 'btn ghost'; b.style.marginTop = '14px';
+      b.textContent = 'Đăng nhập dành cho giảng viên'; b.onclick = () => show('scr-leclogin'); body.appendChild(b); };
     if (IS_ANDROID) {
       $('gateTitle').textContent = 'Android phải dùng app Điểm danh';
       body.innerHTML = '<p>Sinh viên dùng điện thoại Android cài ứng dụng <b>Điểm danh</b> (file APK do BV TLS cung cấp). ' +
         'App có theo dõi định vị khi chạy nền và chặn phần mềm giả lập vị trí.</p>' +
         '<a class="btn" id="apkLink">Tải app Điểm danh cho Android</a>';
       $('apkLink').href = CFG.APK_URL || '#';
-      show('scr-gate'); return false;
+      lecBtn(); show('scr-gate'); return false;
     }
     if (!IS_IOS) {
       $('gateTitle').textContent = 'Mở bằng điện thoại';
       body.innerHTML = '<p>Ứng dụng chỉ dùng trên điện thoại của sinh viên: Android cài app Điểm danh, iPhone dùng bản web thêm vào màn hình chính.</p>';
-      show('scr-gate'); return false;
+      lecBtn(); show('scr-gate'); return false;
     }
     if (!STANDALONE) {
       $('gateTitle').textContent = 'Thêm Điểm danh vào màn hình chính';
@@ -146,12 +149,13 @@
         '<li>Chọn <b>Thêm vào MH chính</b> rồi bấm <b>Thêm</b>.</li>' +
         '<li>Mở biểu tượng <b>Điểm danh</b> (BV TLS nền đỏ) vừa xuất hiện trên màn hình chính.</li></ol>' +
         '<p class="muted">Chỉ bản mở từ màn hình chính mới điểm danh được.</p>';
-      show('scr-gate'); return false;
+      lecBtn(); show('scr-gate'); return false;
     }
     return true;
   }
 
   async function refresh(quiet) {
+    if (!S.session) return;
     if (!quiet) { $('loadingText').textContent = 'Đang kết nối máy chủ…'; show('scr-loading'); }
     let r;
     try { r = await api('status', { mssv: S.session.mssv }); }
@@ -161,6 +165,7 @@
       if (!quiet) fail('Lỗi', r.msg); return;
     }
     S.student = r.student; S.today = r.today; S.slots = r.today.slots || [];
+    if (r.inbox) handleInbox(r.inbox);
     route();
   }
 
@@ -181,14 +186,16 @@
   /* ============================ đăng nhập, đồng ý, đăng ký ============================ */
   $('formLogin').addEventListener('submit', async ev => {
     ev.preventDefault();
+    const fullName = $('inName').value.trim().replace(/\s+/g, ' ');
     const mssv = $('inMssv').value.trim().toUpperCase(), classCode = $('inClass').value.trim().toUpperCase();
-    if (!mssv || !classCode) return;
+    if (!fullName || !mssv || !classCode) { setMsg('loginMsg', 'Nhập đủ họ và tên, MSSV và mã lớp.'); return; }
     setMsg('loginMsg', 'Đang kiểm tra…', true);
     try {
-      const r = await api('status', { mssv, classCode });
+      const r = await api('status', { mssv, classCode, fullName });
       if (!r.ok) { setMsg('loginMsg', r.msg); return; }
-      S.session = { mssv, classCode, consent: false }; save('dd_session', S.session);
+      S.session = { mssv, classCode, fullName, consent: false }; save('dd_session', S.session);
       S.student = r.student; S.today = r.today; S.slots = r.today.slots || [];
+    if (r.inbox) handleInbox(r.inbox);
       setMsg('loginMsg', ''); route();
     } catch (e) { setMsg('loginMsg', e.message || 'Không kết nối được máy chủ.'); }
   });
@@ -452,6 +459,7 @@
       if (sim) S.simReported = true;
       if (!r.ok) return;
       if (r.slots) { S.slots = r.slots; renderSlots(); }
+      if (r.inbox) handleInbox(r.inbox);
       if (!r.track) { stopTracking(r.reason); return; }
       if (r.state === 'NGOAI' && S.lastState !== 'NGOAI') {
         const msg = 'Bạn đã ra ngoài khu vực ' + R + ' m quanh ' + S.cfg.hospital + ' (cách ' + r.dist + ' m). Sự kiện đã được ghi vào báo cáo.';
@@ -480,6 +488,7 @@
 
   /* ---------- đăng xuất ---------- */
   $('btnLogout').addEventListener('click', async () => {
+    if (load('dd_lec')) { if (confirmBox('Đăng xuất tài khoản giảng viên?')) { Lec.logout(); $('btnLogout').hidden = true; } return; }
     if (S.tracking && S.today && S.today.checkin && !shiftOver()) {
       toast('Đang trong ca (đến ' + S.cfg.endTime + '), không đăng xuất được. Sau ' + S.cfg.endTime + ' mới đăng xuất.', 5000);
       return;
@@ -488,7 +497,8 @@
     await stopTracking('');
     try { localStorage.removeItem('dd_session'); Object.keys(localStorage).filter(k => k.indexOf('dd_photo_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
     S.session = null; S.student = null; S.today = null; S.slots = [];
-    $('inMssv').value = ''; $('inClass').value = ''; $('inNote').value = ''; setMsg('loginMsg', '');
+    $('inName').value = ''; $('inMssv').value = ''; $('inClass').value = '';
+    S.inbox = []; renderInbox(); $('inNote').value = ''; setMsg('loginMsg', '');
     $('cbConsent').checked = false; $('btnConsent').disabled = true;
     $('btnLogout').hidden = true;
     show('scr-login');
@@ -505,9 +515,9 @@
   $('btnCheckin').addEventListener('click', () => doFaceAction('checkin'));
   $('btnConfirm').addEventListener('click', () => doFaceAction('confirm'));
 
-  async function doFaceAction(kind) {
+  async function doFaceAction(kind, req) {
     if (S.busy) return;
-    const msgId = kind === 'checkin' ? 'checkinMsg' : 'confirmMsg';
+    const msgId = kind === 'checkin' ? 'checkinMsg' : kind === 'answer' ? 'inboxMsg' : 'confirmMsg';
     const radius = kind === 'checkin' ? S.cfg.checkinRadius : S.cfg.leaveRadius;
     if (kind === 'checkin' && vn().min >= hhmm(S.cfg.deadline) && $('inNote').value.trim().length < 10) {
       setMsg(msgId, 'Sau ' + S.cfg.deadline + ' phải ghi chú giải thích lý do (ít nhất 10 ký tự) rồi mới điểm danh.');
@@ -528,12 +538,12 @@
       if (kind === 'confirm') { const o = slotNow().find(s => s.status === 'open'); if (!o) throw new Error('Hiện không trong khung giờ xác nhận.'); slot = o.time; }
 
       for (;;) {
-        const f = await scanFace({ title: kind === 'checkin' ? 'Điểm danh' : 'Xác nhận mốc ' + slot, samples: 2 });
+        const f = await scanFace({ title: kind === 'checkin' ? 'Điểm danh' : kind === 'answer' ? 'Xác nhận cho giảng viên' : 'Xác nhận mốc ' + slot, samples: 2 });
         if (!f) return;
         const l = S.loc && S.loc.t > Date.now() - 30000 && S.loc.acc <= fix.acc + 5 ? S.loc : fix;
         const t = vn();
         const photo = stamp(f.canvas, [
-          (kind === 'checkin' ? 'ĐIỂM DANH · ' : 'XÁC NHẬN GIỮA CA ' + slot + ' · ') + S.cfg.hospital,
+          (kind === 'checkin' ? 'ĐIỂM DANH · ' : kind === 'answer' ? 'XÁC NHẬN THEO YÊU CẦU GV · ' : 'XÁC NHẬN GIỮA CA ' + slot + ' · ') + S.cfg.hospital,
           S.student.name + ' · ' + S.student.mssv,
           t.dmy + ' ' + t.hms + ' (GMT+7) · cách tâm ' + Math.round(distOf(l)) + ' m (±' + Math.round(l.acc) + ' m)'
         ]);
@@ -541,7 +551,7 @@
         const ans = await review(photo, kind === 'checkin' ? 'Kiểm tra ảnh điểm danh' : 'Kiểm tra ảnh xác nhận',
           (note ? 'Ghi chú: ' + note + '. ' : '') + 'Giờ chính thức là giờ máy chủ nhận được ảnh.',
           async () => {
-            const r = await api(kind, { mssv: S.session.mssv, lat: l.lat, lng: l.lng, acc: l.acc, simulated: !!(l.simulated || fix.simulated),
+            const r = await api(kind, { id: req && req.id, mssv: S.session.mssv, lat: l.lat, lng: l.lng, acc: l.acc, simulated: !!(l.simulated || fix.simulated),
               identicalSamples: fix.identicalSamples, antiFake: af, descriptor: f.descriptor, faceCount: 1, liveness: true, photo, note });
             if (!r.ok) throw new Error(r.msg);
             return r;
@@ -555,12 +565,151 @@
           $('inNote').value = '';
         }
         if (ans.slots) S.slots = ans.slots;
+        if (kind === 'answer') { S.inbox = S.inbox.filter(m => m.id !== req.id); renderInbox(); }
         renderHome();
         return;
       }
     } catch (e) { setMsg(msgId, e.message || String(e)); }
     finally { S.busy = false; }
   }
+
+  /* ============================ thông báo từ giảng viên ============================ */
+  S.inbox = [];
+  function handleInbox(list) {
+    S.inbox = list || [];
+    let seen = load('dd_seen') || [];
+    const fresh = S.inbox.filter(m => !seen.includes(m.id));
+    if (fresh.length) {
+      seen = seen.concat(fresh.map(m => m.id)).slice(-200); save('dd_seen', seen);
+      fresh.forEach(m => notifyLocal(m));
+      if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200]); } catch (e) {} }
+      if (!document.hidden) toast('Có ' + fresh.length + ' thông báo mới từ giảng viên', 5000);
+    }
+    renderInbox();
+  }
+  async function notifyLocal(m) {
+    if (!NATIVE) return;
+    try {
+      await Notif.schedule({ notifications: [{ id: 2000 + (parseInt(m.id, 16) % 100000),
+        title: (m.type === 'XN' ? 'Yêu cầu xác nhận có mặt' : 'Thông báo') + ' – ' + m.from,
+        body: m.text + (m.deadline ? ' (trước ' + m.deadline + ')' : '') }] });
+    } catch (e) {}
+  }
+  function esc(t) { return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function renderInbox() {
+    const card = $('cardInbox');
+    if (!card) return;
+    card.hidden = !S.inbox.length;
+    $('inboxCount').textContent = S.inbox.length;
+    $('inboxList').innerHTML = S.inbox.map(m => '<div class="msg ' + (m.type === 'XN' ? 'req' : '') + '">' +
+      '<div class="msg-head"><b>' + (m.type === 'XN' ? 'Yêu cầu xác nhận có mặt' : 'Thông báo') + '</b><small>' + esc(m.from) + ' · ' + m.sentAt + '</small></div>' +
+      '<p>' + esc(m.text) + '</p>' +
+      (m.type === 'XN'
+        ? '<p class="msg-dead">Hạn chót ' + m.deadline + '. Quét khuôn mặt tại khu vực lâm sàng.</p><button class="btn" data-ans="' + m.id + '">Xác nhận có mặt ngay</button>'
+        : '<button class="btn ghost small" data-ack="' + m.id + '">Đã đọc</button>') + '</div>').join('');
+    $('inboxList').querySelectorAll('[data-ack]').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try { const r = await api('ack', { mssv: S.session.mssv, id: b.dataset.ack }); if (!r.ok) throw new Error(r.msg); S.inbox = S.inbox.filter(m => m.id !== b.dataset.ack); renderInbox(); }
+      catch (e) { setMsg('inboxMsg', e.message || 'Không gửi được.'); b.disabled = false; }
+    });
+    $('inboxList').querySelectorAll('[data-ans]').forEach(b => b.onclick = () => doFaceAction('answer', { id: b.dataset.ans }));
+  }
+  // Khi đang mở app: hỏi thông báo mới mỗi 45 giây
+  setInterval(async () => {
+    if (document.hidden || !S.session || !S.student || $('scr-home').hidden || S.busy) return;
+    try { const r = await api('inbox', { mssv: S.session.mssv }); if (r.ok) handleInbox(r.inbox); } catch (e) {}
+  }, 45000);
+
+  /* ============================ giảng viên ============================ */
+  const Lec = {
+    data: null, sel: new Set(), filter: 'all', timer: null,
+    start() {
+      const s = load('dd_lec');
+      if (!s) { show('scr-leclogin'); return; }
+      $('lecName').textContent = s.name;
+      $('btnLogout').hidden = false;
+      show('scr-lec');
+      this.load();
+      clearInterval(this.timer);
+      this.timer = setInterval(() => { if (!document.hidden && !$('scr-lec').hidden) this.load(true); }, 30000);
+    },
+    async load(quiet) {
+      const s = load('dd_lec'); if (!s) return;
+      if (!quiet) $('lecInfo').textContent = 'Đang tải…';
+      try {
+        const r = await api('lecOverview', { token: s.token });
+        if (!r.ok) { if (r.code === 'AUTH') { this.logout(); setMsg('lecLoginMsg', r.msg); } else $('lecInfo').textContent = r.msg; return; }
+        this.data = r; this.render();
+      } catch (e) { $('lecInfo').textContent = 'Không kết nối được máy chủ.'; }
+    },
+    statusOf(st) {
+      const c = st.checkin, l = st.live;
+      if (!c) return { k: 'absent', label: 'Chưa điểm danh', cls: 'bad' };
+      if (l && l.lost) return { k: 'warn', label: 'Mất tín hiệu', cls: 'bad' };
+      if (l && l.state === 'NGOAI') return { k: 'warn', label: 'Ngoài khu vực', cls: 'bad' };
+      return { k: 'ok', label: c.status === 'Đúng giờ' ? 'Có mặt' : 'Trễ ' + c.late + "'", cls: c.status === 'Đúng giờ' ? 'ok' : 'warn' };
+    },
+    render() {
+      const r = this.data, list = r.students;
+      const stat = { all: list.length, ok: 0, late: 0, absent: 0, warn: 0 };
+      list.forEach(st => { const x = this.statusOf(st); if (x.k === 'absent') stat.absent++; else if (x.k === 'warn') stat.warn++; else stat.ok++; if (st.checkin && st.checkin.status !== 'Đúng giờ') stat.late++; });
+      $('lecInfo').textContent = vn().dmy + ' · cập nhật ' + vn().hm + ' · ' + r.config.hospital;
+      $('lecStats').innerHTML = [['Tổng', stat.all], ['Đã điểm danh', stat.all - stat.absent], ['Trễ', stat.late], ['Vắng', stat.absent], ['Ngoài vùng/mất tín hiệu', stat.warn]]
+        .map(x => '<div><b>' + x[1] + '</b><small>' + x[0] + '</small></div>').join('');
+      const shown = list.filter(st => { const k = this.statusOf(st).k; return this.filter === 'all' || this.filter === k || (this.filter === 'in' && k !== 'absent'); });
+      $('lecList').innerHTML = shown.map(st => {
+        const x = this.statusOf(st), c = st.checkin, l = st.live;
+        const sub = c ? 'Điểm danh ' + c.time + (l && l.dist !== '' ? ' · cách ' + l.dist + ' m' : '') + (l && l.last ? ' · cập nhật ' + String(l.last).substr(0, 5) : '') +
+          ' · giữa ca ' + c.slots + (c.leaves ? ' · rời vùng ' + c.leaves + ' lần' : '') + (c.platform === 'ios-web' ? ' · iPhone' : '') : (st.enrolled ? 'Đã đăng ký khuôn mặt' : 'Chưa đăng ký khuôn mặt');
+        return '<label class="lec-row"><input type="checkbox" data-m="' + st.mssv + '"' + (this.sel.has(st.mssv) ? ' checked' : '') + '>' +
+          '<span class="lec-main"><b>' + esc(st.name) + '</b><small>' + st.mssv + (st.group ? ' · ' + esc(st.group) : '') + '</small><small>' + esc(sub) + '</small>' +
+          (c && c.note ? '<small class="note">Ghi chú: ' + esc(c.note) + '</small>' : '') + '</span><span class="pill ' + x.cls + '">' + x.label + '</span></label>';
+      }).join('') || '<p class="muted">Không có sinh viên.</p>';
+      $('lecList').querySelectorAll('input[data-m]').forEach(cb => cb.onchange = () => { cb.checked ? this.sel.add(cb.dataset.m) : this.sel.delete(cb.dataset.m); this.updSel(); });
+      this.updSel();
+      const st = { 'Đã gửi': '', 'Đã nhận': 'warn', 'Đã xem': 'ok', 'Có mặt': 'ok', 'Quá hạn': 'bad' };
+      $('lecMsgs').innerHTML = r.messages.map(m => '<div class="lec-msg"><div><b>' + esc(m.studentName) + '</b> <small>' + m.sentAt + ' · ' +
+        (m.type === 'XN' ? 'Yêu cầu xác nhận' : 'Thông báo') + '</small><p>' + esc(m.text) + '</p>' + (m.result && m.status !== 'Có mặt' ? '<small class="note">' + esc(m.result.split(' | ')[0]) + '</small>' : '') +
+        '</div><span class="pill ' + (st[m.status] || '') + '">' + m.status + (m.ackAt ? ' ' + m.ackAt : '') + '</span></div>').join('') || '<p class="muted">Chưa gửi yêu cầu nào hôm nay.</p>';
+    },
+    updSel() { $('lecSelCount').textContent = this.sel.size ? 'Đã chọn ' + this.sel.size + ' sinh viên' : 'Chưa chọn sinh viên'; $('btnLecSend').disabled = !this.sel.size; },
+    logout() { clearInterval(this.timer); save('dd_lec', null); try { localStorage.removeItem('dd_lec'); } catch (e) {} this.data = null; this.sel.clear(); show('scr-leclogin'); }
+  };
+
+  $('formLecLogin').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    setMsg('lecLoginMsg', 'Đang kiểm tra…', true);
+    try {
+      const r = await api('lecLogin', { user: $('inLecUser').value.trim(), pass: $('inLecPass').value });
+      if (!r.ok) { setMsg('lecLoginMsg', r.msg); return; }
+      save('dd_lec', { token: r.token, name: r.name }); $('inLecPass').value = ''; setMsg('lecLoginMsg', '');
+      if (!S.deviceId) S.deviceId = await getDeviceId();
+      Lec.start();
+    } catch (e) { setMsg('lecLoginMsg', e.message || 'Không kết nối được máy chủ.'); }
+  });
+  $('btnToLec').addEventListener('click', () => show('scr-leclogin'));
+  $('btnToStudent').addEventListener('click', () => location.reload());
+  $('lecFilter').addEventListener('change', e => { Lec.filter = e.target.value; Lec.render(); });
+  $('btnLecAll').addEventListener('click', () => {
+    const boxes = [...$('lecList').querySelectorAll('input[data-m]')];
+    const all = boxes.length && boxes.every(b => Lec.sel.has(b.dataset.m));
+    boxes.forEach(b => all ? Lec.sel.delete(b.dataset.m) : Lec.sel.add(b.dataset.m));
+    Lec.render();
+  });
+  $('lecType').addEventListener('change', e => { $('lecMinWrap').hidden = e.target.value !== 'XN'; });
+  $('btnLecRefresh').addEventListener('click', () => Lec.load());
+  $('btnLecSend').addEventListener('click', async () => {
+    const s = load('dd_lec'); if (!s || !Lec.sel.size) return;
+    const type = $('lecType').value, text = $('lecText').value.trim();
+    if (type === 'TB' && !text) { setMsg('lecSendMsg', 'Nhập nội dung thông báo.'); return; }
+    $('btnLecSend').disabled = true; setMsg('lecSendMsg', 'Đang gửi…', true);
+    try {
+      const r = await api('lecSend', { token: s.token, mssv: [...Lec.sel], type, text, minutes: Number($('lecMin').value) || 10 });
+      if (!r.ok) throw new Error(r.msg);
+      setMsg('lecSendMsg', r.msg, true); $('lecText').value = ''; Lec.sel.clear(); Lec.load(true);
+    } catch (e) { setMsg('lecSendMsg', e.message || 'Gửi không thành công.'); }
+    finally { Lec.updSel(); }
+  });
 
   /** Hiện ảnh để sinh viên kiểm tra. Trả 'retake', null (hủy) hoặc kết quả gửi. */
   function review(photo, title, note, submit) {

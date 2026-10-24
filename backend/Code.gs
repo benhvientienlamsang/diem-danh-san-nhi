@@ -9,11 +9,12 @@
  *  - Theo dõi vị trí đến 11:00, ghi nhận rời vùng (> 60 m), mất tín hiệu, di chuyển bất thường
  *  - Xác nhận khuôn mặt giữa ca theo khung giờ
  *  - Lưu ảnh và báo cáo PDF kèm hình vào thư mục Google Drive
+ *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.1.3' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.2.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
-var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai' };
+var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
 
 var DEFAULT_CONFIG = [
@@ -94,6 +95,12 @@ function setup() {
     'Lần cuối', 'Đếm ngoài', 'Ra vùng lúc (ms)', 'Số lần rời', 'Phút ngoài', 'Nền tảng', 'Mất tín hiệu', 'Họ tên',
     'Vĩ độ cuối', 'Kinh độ cuối', 'Cờ đã ghi']);
   ht.getRange('A:B').setNumberFormat('@'); ht.getRange('G:G').setNumberFormat('@');
+  var gv = getOrCreateSheet_(SH.GV, ['Tài khoản', 'Mật khẩu', 'Họ tên giảng viên', 'Nhóm phụ trách (để trống = tất cả)', 'Ghi chú']);
+  gv.getRange('A:B').setNumberFormat('@');
+  if (gv.getLastRow() < 2) gv.appendRow(['gv01', 'DoiMatKhau@2026', 'ThS. BS. Giảng viên mẫu', '', 'Tài khoản mẫu: đổi mật khẩu và họ tên trước khi dùng']);
+  var tb = getOrCreateSheet_(SH.TB, ['Mã', 'Ngày', 'Gửi lúc', 'Giảng viên', 'MSSV', 'Họ tên SV', 'Loại', 'Nội dung', 'Hạn (phút)',
+    'Trạng thái', 'Nhận lúc', 'Phản hồi lúc', 'Kết quả']);
+  tb.getRange('A:C').setNumberFormat('@'); tb.getRange('E:E').setNumberFormat('@'); tb.getRange('K:L').setNumberFormat('@');
 
   getRootFolder_();
   installTriggers_();
@@ -158,6 +165,12 @@ function handle_(d) {
       case 'checkin': return json_(apiCheckin_(d));
       case 'confirm': return json_(apiConfirm_(d));
       case 'ping': return json_(apiPing_(d));
+      case 'inbox': return json_(apiInbox_(d));
+      case 'ack': return json_(apiAck_(d));
+      case 'answer': return json_(apiAnswer_(d));
+      case 'lecLogin': return json_(apiLecLogin_(d));
+      case 'lecOverview': return json_(apiLecOverview_(d));
+      case 'lecSend': return json_(apiLecSend_(d));
       default: return json_({ ok: false, msg: 'Yêu cầu không xác định' });
     }
   } catch (err) {
@@ -189,6 +202,9 @@ function apiStatus_(d) {
   if (d.classCode !== undefined && String(d.classCode).trim().toUpperCase() !== String(c.MA_LOP).trim().toUpperCase()) {
     return { ok: false, code: 'BAD_CLASS', msg: 'Mã lớp không đúng.' };
   }
+  if (d.fullName !== undefined && normName_(d.fullName) !== normName_(st.name)) {
+    return { ok: false, code: 'BAD_NAME', msg: 'Họ và tên không khớp với MSSV ' + mssv + ' trong danh sách lớp. Kiểm tra lại họ tên hoặc MSSV.' };
+  }
   var now = new Date();
   var date = fmt_(now, 'yyyy-MM-dd');
   var rec = findCheckin_(date, mssv);
@@ -202,7 +218,8 @@ function apiStatus_(d) {
       checkin: rec ? { time: rec.time, status: rec.status, late: rec.late } : null,
       slots: rec ? slotStatus_(c, now, rec) : [],
       live: ht && ht.date === date ? { state: ht.state, dist: ht.dist } : null
-    }
+    },
+    inbox: inbox_(mssv, d.deviceId)
   };
 }
 
@@ -406,6 +423,12 @@ function apiConfirm_(d) {
 
 /* ---------- ping (theo dõi vị trí) ---------- */
 function apiPing_(d) {
+  var r = apiPingCore_(d);
+  if (r.ok) r.inbox = inbox_(normId_(d.mssv), d.deviceId);
+  return r;
+}
+
+function apiPingCore_(d) {
   var c = cfg_();
   var mssv = normId_(d.mssv);
   var now = new Date();
@@ -631,6 +654,20 @@ function makeReport_(date, kind) {
     para_(body, 'Không ghi nhận sự kiện bất thường.', {});
   }
 
+  var msgs = messagesOn_(date);
+  if (msgs.length) {
+    para_(body, '4. Thông báo và yêu cầu của giảng viên', { size: 12, bold: true, before: 12 });
+    var t4 = body.appendTable([['Gửi lúc', 'Giảng viên', 'Sinh viên', 'Loại', 'Nội dung', 'Kết quả']]);
+    styleHeader_(t4.getRow(0));
+    msgs.forEach(function (m) {
+      var tr = t4.appendTableRow();
+      tr.appendTableCell(m.sentAt); tr.appendTableCell(m.lecturer); tr.appendTableCell(m.studentName + '\n' + m.mssv);
+      tr.appendTableCell(m.type === 'XN' ? 'Yêu cầu xác nhận có mặt' : 'Thông báo'); tr.appendTableCell(m.text);
+      tr.appendTableCell(m.status + (m.ackAt ? ' lúc ' + m.ackAt : '') + (m.result ? '\n' + m.result : ''));
+    });
+    tableFont_(t4, 9.5);
+  }
+
   para_(body, 'Ghi chú: Giờ lấy theo máy chủ (GMT+7). Khoảng cách tính từ tâm vùng điểm danh đã cấu hình. ' +
     'Android được theo dõi vị trí liên tục đến ' + c.GIO_KET_THUC_THEO_DOI + '. iPhone (web) chỉ gửi vị trí khi đang mở ứng dụng, ' +
     'việc có mặt được kiểm soát thêm bằng xác nhận khuôn mặt giữa ca.', { size: 9, italic: true, before: 12 });
@@ -683,7 +720,7 @@ function setWidths_(t, ws) { for (var i = 0; i < ws.length; i++) try { t.setColu
 function eventLabel_(code) {
   return ({
     ROI_VUNG: 'Rời vùng', QUAY_LAI: 'Quay lại', MAT_TIN_HIEU: 'Mất tín hiệu', CO_TIN_HIEU_LAI: 'Có tín hiệu lại',
-    GIA_LAP_VI_TRI: 'Giả lập vị trí', CO_APP_FAKE_GPS: 'Cài app fake GPS', NGHI_GIA_LAP: 'Nghi giả lập', MAY_ROOT: 'Máy đã root',
+    GIA_LAP_VI_TRI: 'Giả lập vị trí', XN_GIANG_VIEN: 'Xác nhận theo yêu cầu GV', CO_APP_FAKE_GPS: 'Cài app fake GPS', NGHI_GIA_LAP: 'Nghi giả lập', MAY_ROOT: 'Máy đã root',
     MAT_KHONG_KHOP: 'Mặt không khớp', MAT_GIONG_SV_KHAC: 'Mặt giống SV khác',
     SAI_THIET_BI: 'Sai thiết bị', THIET_BI_DUNG_CHUNG: 'Thiết bị dùng chung'
   })[code] || code;
@@ -915,4 +952,191 @@ function meanDesc_(arr) {
   var m = []; for (var i = 0; i < 128; i++) m.push(0);
   arr.forEach(function (a) { for (var i = 0; i < 128; i++) m[i] += a[i] / arr.length; });
   return m;
+}
+
+
+/* ============================ GIẢNG VIÊN VÀ THÔNG BÁO ============================ */
+
+function secret_() {
+  var p = PropertiesService.getScriptProperties();
+  var s = p.getProperty('TOKEN_SECRET');
+  if (!s) { s = Utilities.getUuid() + Utilities.getUuid(); p.setProperty('TOKEN_SECRET', s); }
+  return s;
+}
+function sign_(text) { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(text, secret_())); }
+function makeToken_(user) {
+  var body = user + '|' + (Date.now() + 14 * 3600 * 1000);
+  return Utilities.base64EncodeWebSafe(body, Utilities.Charset.UTF_8) + '.' + sign_(body);
+}
+function lecFromToken_(token) {
+  try {
+    var parts = String(token || '').split('.');
+    if (parts.length !== 2) return null;
+    var body = Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString('UTF-8');
+    if (sign_(body) !== parts[1]) return null;
+    var bits = body.split('|');
+    if (Number(bits[1]) < Date.now()) return null;
+    return findLecturer_(bits[0]);
+  } catch (e) { return null; }
+}
+function findLecturer_(user) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.GV);
+  if (!sh) return null;
+  var vals = sh.getDataRange().getDisplayValues();
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]).trim().toLowerCase() === String(user).trim().toLowerCase() && vals[i][0]) {
+      return { user: String(vals[i][0]).trim(), pass: String(vals[i][1]), name: String(vals[i][2]).trim() || String(vals[i][0]).trim(),
+        groups: String(vals[i][3] || '').split(',').map(function (x) { return x.trim().toUpperCase(); }).filter(String) };
+    }
+  }
+  return null;
+}
+function lecStudents_(lec) {
+  return allStudents_().filter(function (s) { return !lec.groups.length || lec.groups.indexOf(String(s.group).toUpperCase()) >= 0; });
+}
+
+function apiLecLogin_(d) {
+  var user = String(d.user || '').trim(), cache = CacheService.getScriptCache();
+  var key = 'lecfail_' + user.toLowerCase();
+  var fails = Number(cache.get(key) || 0);
+  if (fails >= 5) return { ok: false, msg: 'Nhập sai quá 5 lần. Thử lại sau 10 phút.' };
+  var lec = findLecturer_(user);
+  if (!lec || !lec.pass || String(d.pass || '') !== lec.pass) {
+    cache.put(key, String(fails + 1), 600);
+    return { ok: false, msg: 'Sai tài khoản hoặc mật khẩu.' };
+  }
+  cache.remove(key);
+  log_('', '', lec.name, 'GV_DANG_NHAP', '', '', '', '', 'Tài khoản ' + lec.user);
+  return { ok: true, token: makeToken_(lec.user), name: lec.name, serverTime: Date.now() };
+}
+
+function apiLecOverview_(d) {
+  var lec = lecFromToken_(d.token);
+  if (!lec) return { ok: false, code: 'AUTH', msg: 'Phiên đăng nhập đã hết hạn, đăng nhập lại.' };
+  var c = cfg_(), now = new Date(), date = fmt_(now, 'yyyy-MM-dd');
+  var students = lecStudents_(lec);
+  var dd = {}, ht = {};
+  sheet_(SH.DD).getDataRange().getValues().slice(1).forEach(function (r) { if (fmtDateCell_(r[0]) === date) dd[normId_(r[2])] = r; });
+  sheet_(SH.HT).getDataRange().getValues().slice(1).forEach(function (r) { if (fmtDateCell_(r[1]) === date) ht[normId_(r[0])] = r; });
+  var mine = {};
+  students.forEach(function (s) { mine[s.mssv] = true; });
+  var list = students.map(function (s) {
+    var r = dd[s.mssv], h = ht[s.mssv];
+    return {
+      mssv: s.mssv, name: s.name, group: s.group, enrolled: !!s.desc,
+      checkin: r ? { time: fmtTimeCell_(r[1]).substr(0, 5), status: r[5], late: r[6], dist: r[7], note: String(r[13] || ''),
+        slots: slotSummary_(c, now, date, { time: fmtTimeCell_(r[1]), confirms: splitList_(r[15]) }).replace('\n', ' '),
+        leaves: Number(r[16] || 0), outMin: Number(r[17] || 0), platform: String(r[18] || '') } : null,
+      live: h ? { state: h[2], dist: h[3], last: h[6], lost: h[12] === true || h[12] === 'TRUE' } : null
+    };
+  });
+  var msgs = messagesOn_(date).filter(function (m) { return mine[m.mssv]; });
+  return { ok: true, serverTime: Date.now(), config: publicConfig_(c), lecturer: { name: lec.name, user: lec.user },
+    date: date, students: list, messages: msgs.reverse() };
+}
+
+function apiLecSend_(d) {
+  var lec = lecFromToken_(d.token);
+  if (!lec) return { ok: false, code: 'AUTH', msg: 'Phiên đăng nhập đã hết hạn, đăng nhập lại.' };
+  var type = d.type === 'XN' ? 'XN' : 'TB';
+  var text = String(d.text || '').trim().substr(0, 500);
+  if (!text) text = type === 'XN' ? 'Giảng viên yêu cầu bạn xác nhận có mặt ngay.' : '';
+  if (!text) return { ok: false, msg: 'Chưa nhập nội dung thông báo.' };
+  var minutes = type === 'XN' ? Math.max(1, Math.min(60, Number(d.minutes) || 10)) : '';
+  var allowed = {};
+  lecStudents_(lec).forEach(function (s) { allowed[s.mssv] = s; });
+  var ids = (d.mssv || []).map(normId_).filter(function (x) { return allowed[x]; });
+  if (!ids.length) return { ok: false, msg: 'Chưa chọn sinh viên.' };
+  var now = new Date(), date = fmt_(now, 'yyyy-MM-dd'), t = fmt_(now, 'HH:mm:ss');
+  var rows = ids.map(function (m) {
+    return [Utilities.getUuid().substr(0, 8), date, t, lec.name, m, allowed[m].name, type, text, minutes, 'Đã gửi', '', '', ''];
+  });
+  var sh = sheet_(SH.TB);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  return { ok: true, count: rows.length, msg: 'Đã gửi đến ' + rows.length + ' sinh viên.' };
+}
+
+/** Thông báo trong ngày của 1 sinh viên chưa xử lý xong. Đánh dấu "Đã nhận" khi điện thoại tải về. */
+function inbox_(mssv, deviceId) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.TB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var now = new Date(), date = fmt_(now, 'yyyy-MM-dd'), nowStr = fmt_(now, 'HH:mm:ss');
+  var vals = sh.getDataRange().getValues(), out = [];
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i];
+    if (fmtDateCell_(r[1]) !== date || normId_(r[4]) !== mssv) continue;
+    var status = String(r[9]);
+    if (status !== 'Đã gửi' && status !== 'Đã nhận') continue;
+    var sent = fmtTimeCell_(r[2]);
+    var deadline = '';
+    if (r[6] === 'XN') {
+      var endTs = Utilities.parseDate(date + ' ' + sent, TZ, 'yyyy-MM-dd HH:mm:ss').getTime() + Number(r[8] || 10) * 60000;
+      if (now.getTime() > endTs) { sh.getRange(i + 1, 10).setValue('Quá hạn'); continue; }
+      deadline = fmt_(new Date(endTs), 'HH:mm');
+    }
+    if (status === 'Đã gửi') { sh.getRange(i + 1, 10, 1, 2).setValues([['Đã nhận', nowStr]]); }
+    out.push({ id: String(r[0]), type: r[6], text: String(r[7]), from: String(r[3]), sentAt: sent.substr(0, 5), deadline: deadline });
+  }
+  return out;
+}
+
+function messagesOn_(date) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.TB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getDataRange().getValues().slice(1).filter(function (r) { return fmtDateCell_(r[1]) === date; }).map(function (r) {
+    return { id: String(r[0]), sentAt: fmtTimeCell_(r[2]).substr(0, 5), lecturer: String(r[3]), mssv: normId_(r[4]), studentName: String(r[5]),
+      type: String(r[6]), text: String(r[7]), minutes: r[8], status: String(r[9]), recvAt: fmtTimeCell_(r[10]).substr(0, 5),
+      ackAt: fmtTimeCell_(r[11]).substr(0, 5), result: String(r[12] || '') };
+  });
+}
+
+function findMessage_(id, mssv) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.TB);
+  if (!sh) return null;
+  var vals = sh.getDataRange().getValues();
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]) === String(id) && normId_(vals[i][4]) === mssv) return { row: i + 1, r: vals[i], sh: sh };
+  }
+  return null;
+}
+
+function apiInbox_(d) { return { ok: true, serverTime: Date.now(), inbox: inbox_(normId_(d.mssv), d.deviceId) }; }
+
+function apiAck_(d) {
+  var m = findMessage_(d.id, normId_(d.mssv));
+  if (!m) return { ok: false, msg: 'Không tìm thấy thông báo.' };
+  if (m.r[6] !== 'TB') return { ok: false, msg: 'Yêu cầu này phải xác nhận bằng khuôn mặt.' };
+  m.sh.getRange(m.row, 10, 1, 3).setValues([['Đã xem', m.r[10] || fmt_(new Date(), 'HH:mm:ss'), fmt_(new Date(), 'HH:mm:ss')]]);
+  return { ok: true };
+}
+
+function apiAnswer_(d) {
+  var c = cfg_(), now = new Date(), date = fmt_(now, 'yyyy-MM-dd'), mssv = normId_(d.mssv);
+  var m = findMessage_(d.id, mssv);
+  if (!m || m.r[6] !== 'XN') return { ok: false, msg: 'Không tìm thấy yêu cầu xác nhận.' };
+  var status = String(m.r[9]);
+  if (status === 'Có mặt') return { ok: false, msg: 'Bạn đã xác nhận yêu cầu này rồi.' };
+  var sent = fmtTimeCell_(m.r[2]);
+  var endTs = Utilities.parseDate(fmtDateCell_(m.r[1]) + ' ' + sent, TZ, 'yyyy-MM-dd HH:mm:ss').getTime() + Number(m.r[8] || 10) * 60000;
+  if (fmtDateCell_(m.r[1]) !== date || now.getTime() > endTs) {
+    m.sh.getRange(m.row, 10).setValue('Quá hạn');
+    return { ok: false, msg: 'Yêu cầu đã quá hạn.' };
+  }
+  var v = verify_(d, c, date, num_(c.BAN_KINH_ROI_VUNG_M), 'Xác nhận theo yêu cầu GV');
+  if (v.err) {
+    m.sh.getRange(m.row, 13).setValue('Lần thử lỗi lúc ' + fmt_(now, 'HH:mm') + ': ' + v.err);
+    return { ok: false, msg: v.err };
+  }
+  var file = savePhoto_(d.photo, folderPath_(['Anh xac nhan giang vien', date.substr(0, 7), date]),
+    date + '_' + fmt_(now, 'HHmmss') + '_' + mssv + '_' + slug_(v.st.name) + '.jpg',
+    'Xác nhận có mặt theo yêu cầu của ' + m.r[3] + ' – ' + v.st.name + ' (' + mssv + ') – ' + APP.BRAND);
+  var t = fmt_(now, 'HH:mm:ss');
+  m.sh.getRange(m.row, 10, 1, 4).setValues([['Có mặt', m.r[10] || t, t, 'Cách tâm ' + Math.round(v.dist) + ' m | ' + file.getUrl()]]);
+  log_(date, mssv, v.st.name, 'XN_GIANG_VIEN', Math.round(v.dist), Math.round(v.acc), v.lat, v.lng, 'Yêu cầu của ' + m.r[3] + ' | ' + file.getUrl());
+  return { ok: true, msg: 'Đã xác nhận có mặt, gửi đến ' + m.r[3] + '.' };
+}
+
+function normName_(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
 }

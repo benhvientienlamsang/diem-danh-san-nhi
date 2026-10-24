@@ -94,7 +94,7 @@ Ghi chú: GitHub Pages của kho công khai cho phép người khác xem mã gia
 ### Android
 
 1. Tải file APK từ link Releases, mở file, cho phép “Cài ứng dụng không rõ nguồn gốc”. Có thể Google Play Protect cảnh báo vì app không qua CH Play, chọn “Vẫn cài đặt”.
-2. Mở app **Điểm danh** (biểu tượng BV TLS nền đỏ), nhập MSSV và mã lớp, đọc quy định, đăng ký khuôn mặt.
+2. Mở app **Điểm danh** (biểu tượng BV TLS nền đỏ), nhập họ và tên (đúng như danh sách lớp), MSSV và mã lớp, đọc quy định, đăng ký khuôn mặt.
 3. Cấp quyền: Camera, Vị trí **chính xác** “Khi dùng ứng dụng”, Thông báo.
 4. **Pin**: Cài đặt > Ứng dụng > Điểm danh > Pin > **Không hạn chế**. Các máy Xiaomi, Oppo, Vivo, Samsung hay tự tắt app chạy nền, không làm bước này dễ bị ghi “Mất tín hiệu”.
 5. Trong ca: không vuốt tắt app khỏi danh sách đa nhiệm, không tắt GPS. Có thông báo cố định “Điểm danh – BV TLS” là app đang theo dõi bình thường.
@@ -103,9 +103,20 @@ Ghi chú: GitHub Pages của kho công khai cho phép người khác xem mã gia
 
 1. Mở **Safari**, vào `https://benhvientienlamsang.github.io/diem-danh/`.
 2. Bấm **Chia sẻ > Thêm vào MH chính > Thêm**.
-3. Mở biểu tượng **Điểm danh** trên màn hình chính, nhập MSSV và mã lớp, đăng ký khuôn mặt, cho phép Camera và Vị trí.
+3. Mở biểu tượng **Điểm danh** trên màn hình chính, nhập họ và tên, MSSV và mã lớp, đăng ký khuôn mặt, cho phép Camera và Vị trí.
 4. Nếu lỡ từ chối vị trí: Cài đặt > Quyền riêng tư & Bảo mật > Dịch vụ định vị > Trang web Safari > Khi dùng ứng dụng, bật **Vị trí chính xác**.
 5. Đặt báo thức cho các mốc 08:30, 09:30, 10:30 (iPhone không tự nhắc).
+
+## 6b. Tài khoản giảng viên
+
+- Sheet **GiangVien** (tự tạo khi chạy lại hàm `setup`): mỗi dòng một giảng viên gồm Tài khoản, Mật khẩu, Họ tên giảng viên, Nhóm phụ trách. Để trống Nhóm phụ trách thì giảng viên thấy toàn bộ sinh viên. Ghi `Y6A, Y6B` thì chỉ thấy các nhóm đó (khớp cột Nhóm/Lớp của sheet SinhVien).
+- Dòng `gv01` là tài khoản mẫu: đổi mật khẩu và họ tên trước khi dùng. Nhập sai mật khẩu 5 lần thì tài khoản bị khóa 10 phút.
+- Giảng viên đăng nhập bằng nút **Đăng nhập dành cho giảng viên** ở màn hình đăng nhập (trên app Android, trên iPhone, hoặc mở link web bằng máy tính). Phiên đăng nhập có hiệu lực 14 giờ.
+- Màn hình giảng viên hiện tên giảng viên, số SV có mặt, trễ, vắng, ngoài vùng. Giảng viên tích chọn sinh viên rồi gửi:
+  - **Yêu cầu xác nhận có mặt**: sinh viên phải quét khuôn mặt tại khu vực lâm sàng (trong 60 m) trước hạn chót. Quá hạn ghi “Quá hạn”.
+  - **Thông báo**: sinh viên bấm “Đã đọc”.
+- Trạng thái từng yêu cầu (Đã gửi, Đã nhận, Đã xem, Có mặt, Quá hạn) hiện ngay trên màn hình giảng viên, lưu ở sheet **ThongBao** và in vào mục 4 của báo cáo PDF.
+- Cách thông báo đến điện thoại sinh viên: app tự hỏi máy chủ, không dùng dịch vụ đẩy thông báo riêng. Android trong ca (đến 11:00) nhận thông báo hệ thống trong vòng khoảng 2 phút kể cả khi tắt màn hình. Ngoài ca hoặc trên iPhone, sinh viên thấy thông báo khi mở app (app hỏi lại mỗi 45 giây khi đang mở).
 
 ## 7. Bảng cấu hình (sheet `CauHinh`)
 

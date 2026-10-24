@@ -63,6 +63,9 @@
         <p class="muted js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</p>
       </div>
       <form class="card" id="formLogin" autocomplete="off">
+        <label>Họ và tên
+          <input id="inName" autocapitalize="words" required placeholder="Ví dụ: Nguyễn Văn An">
+        </label>
         <label>MSSV
           <input id="inMssv" autocapitalize="characters" required placeholder="Ví dụ: 2101001">
         </label>
@@ -72,6 +75,77 @@
         <p class="form-msg" id="loginMsg"></p>
         <button class="btn" type="submit">Tiếp tục</button>
       </form>
+      <button class="btn ghost" id="btnToLec" type="button">Đăng nhập dành cho giảng viên</button>
+    </section>
+
+    <!-- Giảng viên -->
+    <section class="screen" id="scr-leclogin" hidden>
+      <div class="hero">
+        <p class="eyebrow">Từ BV TLS</p>
+        <h1>Giảng viên</h1>
+        <p class="muted">Theo dõi sinh viên và gửi thông báo, yêu cầu xác nhận có mặt.</p>
+      </div>
+      <form class="card" id="formLecLogin" autocomplete="off">
+        <label>Tài khoản
+          <input id="inLecUser" autocapitalize="none" required placeholder="Tài khoản do BV TLS cấp">
+        </label>
+        <label>Mật khẩu
+          <input id="inLecPass" type="password" required>
+        </label>
+        <p class="form-msg" id="lecLoginMsg"></p>
+        <button class="btn" type="submit">Đăng nhập</button>
+      </form>
+      <button class="btn ghost" id="btnToStudent" type="button">Tôi là sinh viên</button>
+    </section>
+
+    <section class="screen" id="scr-lec" hidden>
+      <div class="card">
+        <p class="eyebrow">Giảng viên</p>
+        <h2 id="lecName"></h2>
+        <p class="muted" id="lecInfo"></p>
+        <div class="stats" id="lecStats"></div>
+      </div>
+
+      <div class="card">
+        <h3>Gửi đến sinh viên được chọn</h3>
+        <label>Loại
+          <select id="lecType">
+            <option value="XN">Yêu cầu xác nhận có mặt (quét khuôn mặt)</option>
+            <option value="TB">Thông báo</option>
+          </select>
+        </label>
+        <label>Nội dung
+          <textarea id="lecText" rows="2" maxlength="500" placeholder="Ví dụ: Các em có mặt tại khoa Sơ sinh lúc 9 giờ"></textarea>
+        </label>
+        <label id="lecMinWrap">Thời hạn xác nhận (phút)
+          <input id="lecMin" type="number" min="1" max="60" value="10">
+        </label>
+        <p class="muted" id="lecSelCount">Chưa chọn sinh viên</p>
+        <p class="form-msg" id="lecSendMsg"></p>
+        <button class="btn" id="btnLecSend" disabled>Gửi</button>
+      </div>
+
+      <div class="card">
+        <div class="row-between">
+          <h3>Sinh viên hôm nay</h3>
+          <button class="btn ghost small" id="btnLecRefresh">Làm mới</button>
+        </div>
+        <div class="lec-tools">
+          <select id="lecFilter">
+            <option value="all">Tất cả</option>
+            <option value="absent">Chưa điểm danh</option>
+            <option value="in">Đã điểm danh</option>
+            <option value="warn">Ngoài vùng hoặc mất tín hiệu</option>
+          </select>
+          <button class="btn ghost small" id="btnLecAll">Chọn tất cả</button>
+        </div>
+        <div id="lecList"></div>
+      </div>
+
+      <div class="card">
+        <h3>Đã gửi hôm nay</h3>
+        <div id="lecMsgs"></div>
+      </div>
     </section>
 
     <section class="screen" id="scr-consent" hidden>
@@ -116,6 +190,15 @@
           <div id="clock">--:--:--</div>
           <small id="dateText"></small>
         </div>
+      </div>
+
+      <div class="card inbox" id="cardInbox" hidden>
+        <div class="row-between">
+          <h3>Thông báo từ giảng viên</h3>
+          <span class="pill bad" id="inboxCount">0</span>
+        </div>
+        <div id="inboxList"></div>
+        <p class="form-msg" id="inboxMsg"></p>
       </div>
 
       <div class="deadline" id="deadline"></div>

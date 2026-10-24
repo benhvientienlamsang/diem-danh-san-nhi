@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.2.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.3.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -30,10 +30,11 @@ var DEFAULT_CONFIG = [
   ['GIO_HAN_DIEM_DANH', '07:00', 'Điểm danh TRƯỚC giờ này là đúng giờ, từ giờ này trở đi là trễ'],
   ['GIO_KET_THUC_THEO_DOI', '11:00', 'Hết ca: sau giờ này ngừng theo dõi vị trí và không nhận điểm danh'],
   ['NGAY_HOC', '2,3,4,5,6', 'Các ngày có điểm danh: 2 = thứ Hai ... 7 = thứ Bảy, 8 = Chủ nhật'],
-  ['MA_LOP', 'BVTLS2026', 'Mã sinh viên phải nhập khi đăng nhập lần đầu'],
+  ['MA_LOP', 'BVTLS2026', 'Mã lớp SV nhập khi đăng nhập. Nhiều mã cách nhau dấu phẩy. Viết MÃ=NHÓM để mã chỉ dùng cho nhóm đó, ví dụ: SNA2026=Y6A, SNB2026=Y6B'],
   ['NGUONG_KHUON_MAT', '0.50', 'Độ lệch đặc trưng khuôn mặt tối đa để chấp nhận (nhỏ hơn = chặt hơn)'],
   ['NGUONG_TRUNG_KHUON_MAT', '0.45', 'Khi đăng ký, khuôn mặt gần hơn mức này với SV khác sẽ bị từ chối'],
   ['KHOA_1_THIET_BI', 'TRUE', 'TRUE: mỗi SV chỉ dùng 1 điện thoại đã đăng ký'],
+  ['CHO_SV_TU_DANG_KY', 'TRUE', 'TRUE: SV chưa có trong danh sách được tự đăng ký lần đầu (họ tên, MSSV, mã lớp, khuôn mặt). FALSE: chỉ SV có sẵn trong sheet SinhVien'],
   ['XAC_NHAN_GIUA_CA', '08:30,09:30,10:30', 'Các mốc xác nhận khuôn mặt giữa ca. Để trống = tắt'],
   ['XAC_NHAN_CUA_SO_PHUT', '15', 'Mỗi mốc xác nhận mở trong bao nhiêu phút'],
   ['CHAN_APP_FAKE_GPS_DA_CAI', 'TRUE', 'Android: TRUE = không cho điểm danh khi máy có cài app giả lập vị trí'],
@@ -161,6 +162,7 @@ function handle_(d) {
     switch (d.action) {
       case 'config': return json_({ ok: true, serverTime: Date.now(), config: publicConfig_(cfg_()) });
       case 'status': return json_(apiStatus_(d));
+      case 'classes': return json_({ ok: true, classes: classList_(cfg_()) });
       case 'enroll': return json_(apiEnroll_(d));
       case 'checkin': return json_(apiCheckin_(d));
       case 'confirm': return json_(apiConfirm_(d));
@@ -198,8 +200,15 @@ function apiStatus_(d) {
   var c = cfg_();
   var mssv = normId_(d.mssv);
   var st = findStudent_(mssv);
-  if (!st) return { ok: false, code: 'NO_STUDENT', msg: 'Không tìm thấy MSSV ' + mssv + ' trong danh sách. Liên hệ quản trị BV TLS.' };
-  if (d.classCode !== undefined && String(d.classCode).trim().toUpperCase() !== String(c.MA_LOP).trim().toUpperCase()) {
+  if (!st) {
+    // Sinh viên mới: cho đăng ký lần đầu nếu cấu hình cho phép
+    var reg = newReg_(c, mssv, d.classCode !== undefined ? d.classCode : d.regCode, d.fullName !== undefined ? d.fullName : d.regName);
+    if (reg.err) return { ok: false, code: 'NO_STUDENT', msg: reg.err };
+    return { ok: true, serverTime: Date.now(), config: publicConfig_(c),
+      student: { mssv: mssv, name: reg.name, group: reg.group, enrolled: false, isNew: true, deviceMatch: true },
+      today: { date: fmt_(new Date(), 'yyyy-MM-dd'), schoolDay: isSchoolDay_(c, new Date()), checkin: null, slots: [], live: null }, inbox: [] };
+  }
+  if (d.classCode !== undefined && !classOk_(c, d.classCode, st)) {
     return { ok: false, code: 'BAD_CLASS', msg: 'Mã lớp không đúng.' };
   }
   if (d.fullName !== undefined && normName_(d.fullName) !== normName_(st.name)) {
@@ -227,12 +236,17 @@ function apiStatus_(d) {
 function apiEnroll_(d) {
   var c = cfg_();
   var mssv = normId_(d.mssv);
-  if (String(d.classCode || '').trim().toUpperCase() !== String(c.MA_LOP).trim().toUpperCase()) return { ok: false, msg: 'Mã lớp không đúng.' };
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var st = findStudent_(mssv);
-    if (!st) return { ok: false, msg: 'Không tìm thấy MSSV trong danh sách.' };
+    if (st) {
+      if (!classOk_(c, d.classCode, st)) return { ok: false, msg: 'Mã lớp không đúng.' };
+    } else {
+      var reg = newReg_(c, mssv, d.classCode, d.fullName);
+      if (reg.err) return { ok: false, msg: reg.err };
+      st = { row: 0, mssv: mssv, name: reg.name, group: reg.group, desc: null, device: '' };
+    }
     if (st.desc) return { ok: false, msg: 'MSSV này đã đăng ký khuôn mặt. Muốn đăng ký lại, liên hệ quản trị BV TLS.' };
     var samples = d.descriptors;
     if (!samples || samples.length < 3) return { ok: false, msg: 'Cần ít nhất 3 mẫu khuôn mặt.' };
@@ -260,6 +274,11 @@ function apiEnroll_(d) {
         'Ảnh đăng ký khuôn mặt – ' + st.name + ' (' + mssv + ') – ' + APP.BRAND).getUrl();
     }
     var sh = sheet_(SH.SV);
+    if (!st.row) {
+      sh.appendRow([mssv, st.name, st.group, '', '', '', '', 'Tự đăng ký qua app ' + fmt_(new Date(), 'dd/MM/yyyy HH:mm'), '']);
+      st.row = sh.getLastRow();
+      sh.getRange(st.row, 1).setNumberFormat('@').setValue(mssv);
+    }
     sh.getRange(st.row, 4, 1, 4).setValues([['Đã đăng ký', fmt_(new Date(), 'dd/MM/yyyy HH:mm'),
       photoUrl ? '=HYPERLINK("' + photoUrl + '";"Xem ảnh")' : '', d.deviceId || '']]);
     sh.getRange(st.row, 9).setValue(JSON.stringify(mean.map(function (x) { return Math.round(x * 1e5) / 1e5; })));
@@ -1139,4 +1158,43 @@ function apiAnswer_(d) {
 function normName_(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
     .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Mã lớp hợp lệ: MA_LOP có thể chứa nhiều mã, cách nhau dấu phẩy. Dạng MÃ=NHÓM chỉ dùng cho sinh viên thuộc nhóm đó. */
+function classOk_(c, code, st) {
+  var input = String(code || '').trim().toUpperCase();
+  if (!input) return false;
+  var group = st ? String(st.group || '').trim().toUpperCase() : '';
+  return String(c.MA_LOP || '').split(',').some(function (item) {
+    var parts = item.split('=');
+    var k = String(parts[0] || '').trim().toUpperCase();
+    var g = String(parts[1] || '').trim().toUpperCase();
+    return k && k === input && (!g || g === group);
+  });
+}
+
+/** Danh sách mã lớp để sinh viên tích chọn, lấy từ ô MA_LOP: [{ code, group }] */
+function classList_(c) {
+  var seen = {};
+  return String(c.MA_LOP || '').split(',').map(function (item) {
+    var parts = item.split('=');
+    return { code: String(parts[0] || '').trim().toUpperCase(), group: String(parts[1] || '').trim() };
+  }).filter(function (x) { if (!x.code || seen[x.code]) return false; seen[x.code] = true; return true; });
+}
+
+/** Kiểm tra thông tin đăng ký lần đầu của sinh viên chưa có trong danh sách. */
+function newReg_(c, mssv, code, fullName) {
+  if (!bool_(c.CHO_SV_TU_DANG_KY)) return { err: 'Không tìm thấy MSSV ' + mssv + ' trong danh sách. Liên hệ quản trị BV TLS.' };
+  if (!/^[A-Z0-9]{4,15}$/.test(mssv)) return { err: 'MSSV chỉ gồm chữ và số, từ 4 đến 15 ký tự.' };
+  var input = String(code || '').trim().toUpperCase(), group = null;
+  String(c.MA_LOP || '').split(',').forEach(function (item) {
+    var parts = item.split('=');
+    if (group === null && String(parts[0] || '').trim().toUpperCase() === input && input) group = String(parts[1] || '').trim();
+  });
+  if (group === null) return { err: 'Mã lớp không đúng.' };
+  if (!group) group = input;
+  var name = String(fullName || '').replace(/\s+/g, ' ').trim();
+  if (name.split(' ').length < 2 || name.length < 5) return { err: 'Nhập đầy đủ họ và tên (có dấu), ví dụ: Nguyễn Văn An.' };
+  name = name.split(' ').map(function (w) { return w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase(); }).join(' ');
+  return { name: name, group: group };
 }

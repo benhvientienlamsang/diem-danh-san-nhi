@@ -59,19 +59,30 @@
     <section class="screen" id="scr-login" hidden>
       <div class="hero">
         <p class="eyebrow">Từ BV TLS</p>
-        <h1>Điểm danh lâm sàng</h1>
+        <h1>Đăng ký và đăng nhập</h1>
         <p class="muted js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</p>
       </div>
+      <div class="card steps-card">
+        <p class="eyebrow">Lần đầu dùng app: đăng ký 3 bước</p>
+        <ol class="reg-steps">
+          <li class="on"><b>Thông tin</b><small>Họ tên, MSSV, mã lớp</small></li>
+          <li><b>Quy định</b><small>Đọc và đồng ý</small></li>
+          <li><b>Khuôn mặt</b><small>Quét 1 lần</small></li>
+        </ol>
+        <p class="muted">Đã đăng ký rồi (đổi máy, cài lại app): nhập đúng thông tin cũ để đăng nhập.</p>
+      </div>
       <form class="card" id="formLogin" autocomplete="off">
+        <p class="eyebrow">Bước 1/3 · Thông tin sinh viên</p>
         <label>Họ và tên
-          <input id="inName" autocapitalize="words" required placeholder="Ví dụ: Nguyễn Văn An">
+          <input id="inName" autocapitalize="words" required placeholder="Ghi đầy đủ, có dấu: Nguyễn Văn An">
         </label>
         <label>MSSV
           <input id="inMssv" autocapitalize="characters" required placeholder="Ví dụ: 2101001">
         </label>
-        <label>Mã lớp
-          <input id="inClass" autocapitalize="characters" required placeholder="Mã do BV TLS cấp">
-        </label>
+        <div class="field">
+          <span class="field-label">Chọn mã lớp</span>
+          <div class="class-list" id="classList"><p class="muted">Đang tải danh sách mã lớp…</p></div>
+        </div>
         <p class="form-msg" id="loginMsg"></p>
         <button class="btn" type="submit">Tiếp tục</button>
       </form>
@@ -150,6 +161,7 @@
 
     <section class="screen" id="scr-consent" hidden>
       <div class="card">
+        <p class="eyebrow">Bước 2/3 · Quy định</p>
         <h2>Quy định và đồng ý</h2>
         <p><b class="js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</b></p>
         <ul class="dash">
@@ -166,7 +178,7 @@
 
     <section class="screen" id="scr-enroll" hidden>
       <div class="card">
-        <p class="eyebrow">Làm một lần duy nhất</p>
+        <p class="eyebrow">Bước 3/3 · Làm một lần duy nhất</p>
         <h2>Đăng ký khuôn mặt</h2>
         <p class="who js-who"></p>
         <ul class="dash">

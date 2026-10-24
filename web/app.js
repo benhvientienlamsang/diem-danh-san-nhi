@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
 
   const S = {
     session: load('dd_session'),
@@ -57,7 +57,10 @@
   const distOf = l => haversine(l.lat, l.lng, S.cfg.lat, S.cfg.lng);
   const effDist = l => Math.max(0, distOf(l) - Math.min(l.acc, S.cfg.gpsTolerance));
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  function show(id) { document.querySelectorAll('.screen').forEach(s => { s.hidden = s.id !== id; }); window.scrollTo(0, 0); }
+  function show(id) {
+    document.querySelectorAll('.screen').forEach(s => { s.hidden = s.id !== id; }); window.scrollTo(0, 0);
+    if (id === 'scr-login' && !document.querySelector('input[name="classCode"]')) loadClasses();
+  }
   function toast(msg, ms) {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms || 3500);
@@ -158,7 +161,7 @@
     if (!S.session) return;
     if (!quiet) { $('loadingText').textContent = 'Đang kết nối máy chủ…'; show('scr-loading'); }
     let r;
-    try { r = await api('status', { mssv: S.session.mssv }); }
+    try { r = await api('status', { mssv: S.session.mssv, regCode: S.session.classCode, regName: S.session.fullName }); }
     catch (e) { if (!quiet) fail('Không kết nối được', e.message || String(e)); return; }
     if (!r.ok) {
       if (r.code === 'NO_STUDENT' || r.code === 'BAD_CLASS') { S.session = null; save('dd_session', null); show('scr-login'); setMsg('loginMsg', r.msg); return; }
@@ -187,8 +190,11 @@
   $('formLogin').addEventListener('submit', async ev => {
     ev.preventDefault();
     const fullName = $('inName').value.trim().replace(/\s+/g, ' ');
-    const mssv = $('inMssv').value.trim().toUpperCase(), classCode = $('inClass').value.trim().toUpperCase();
-    if (!fullName || !mssv || !classCode) { setMsg('loginMsg', 'Nhập đủ họ và tên, MSSV và mã lớp.'); return; }
+    const mssv = $('inMssv').value.trim().toUpperCase();
+    const picked = document.querySelector('input[name="classCode"]:checked');
+    const classCode = picked ? picked.value : '';
+    if (!fullName || !mssv) { setMsg('loginMsg', 'Nhập đủ họ và tên, MSSV.'); return; }
+    if (!classCode) { setMsg('loginMsg', 'Tích chọn mã lớp của bạn.'); return; }
     setMsg('loginMsg', 'Đang kiểm tra…', true);
     try {
       const r = await api('status', { mssv, classCode, fullName });
@@ -199,6 +205,22 @@
       setMsg('loginMsg', ''); route();
     } catch (e) { setMsg('loginMsg', e.message || 'Không kết nối được máy chủ.'); }
   });
+
+  /** Tải danh sách mã lớp (giảng viên nhập ở ô MA_LOP) để sinh viên tích chọn. */
+  async function loadClasses() {
+    const box = $('classList');
+    box.innerHTML = '<p class="muted">Đang tải danh sách mã lớp…</p>';
+    try {
+      const r = await api('classes');
+      const list = (r && r.classes) || [];
+      if (!list.length) { box.innerHTML = '<p class="form-msg">Giảng viên chưa nhập mã lớp. Liên hệ giảng viên.</p>'; return; }
+      box.innerHTML = list.map((c, i) => '<label class="class-opt"><input type="radio" name="classCode" value="' + esc(c.code) + '"' + (list.length === 1 ? ' checked' : '') + '>' +
+        '<span>' + esc(c.code) + (c.group && c.group.toUpperCase() !== c.code ? '<small>Nhóm ' + esc(c.group) + '</small>' : '') + '</span></label>').join('');
+    } catch (e) {
+      box.innerHTML = '<p class="form-msg">Không tải được mã lớp. Kiểm tra mạng.</p><button type="button" class="btn ghost small" id="btnReloadClasses">Thử lại</button>';
+      $('btnReloadClasses').onclick = loadClasses;
+    }
+  }
 
   $('cbConsent').addEventListener('change', e => { $('btnConsent').disabled = !e.target.checked; });
   $('btnConsent').addEventListener('click', () => { S.session.consent = true; save('dd_session', S.session); route(); });
@@ -212,9 +234,9 @@
       if (!f) return;
       const photo = stamp(f.canvas, ['ĐĂNG KÝ KHUÔN MẶT', S.student.name + ' · ' + S.student.mssv, vn().dmy + ' ' + vn().hms + ' (GMT+7)']);
       setMsg('enrollMsg', 'Đang gửi…', true);
-      const r = await api('enroll', { mssv: S.session.mssv, classCode: S.session.classCode, descriptors: f.descriptors, liveness: false, photo });
+      const r = await api('enroll', { mssv: S.session.mssv, classCode: S.session.classCode, fullName: S.session.fullName, descriptors: f.descriptors, liveness: false, photo });
       if (!r.ok) { setMsg('enrollMsg', r.msg); return; }
-      toast(r.msg); S.student.enrolled = true; route();
+      toast(r.msg + (S.student.isNew ? ' Bạn đã được thêm vào danh sách lớp.' : ''), 5000); S.student.enrolled = true; await refresh();
     } catch (e) { setMsg('enrollMsg', e.message || String(e)); }
     finally { S.busy = false; }
   });
@@ -497,7 +519,7 @@
     await stopTracking('');
     try { localStorage.removeItem('dd_session'); Object.keys(localStorage).filter(k => k.indexOf('dd_photo_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
     S.session = null; S.student = null; S.today = null; S.slots = [];
-    $('inName').value = ''; $('inMssv').value = ''; $('inClass').value = '';
+    $('inName').value = ''; $('inMssv').value = ''; $('classList').innerHTML = '';
     S.inbox = []; renderInbox(); $('inNote').value = ''; setMsg('loginMsg', '');
     $('cbConsent').checked = false; $('btnConsent').disabled = true;
     $('btnLogout').hidden = true;

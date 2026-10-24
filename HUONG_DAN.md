@@ -65,13 +65,15 @@ Tọa độ mặc định `9.9731417, 105.0975708` lấy từ Google Maps cho đ
 
 Lưu ý thực tế: trong nhà, GPS điện thoại thường sai 10 đến 30 m. Máy chủ đã trừ tối đa 10 m sai số (`SAI_SO_GPS_CHO_PHEP_M`). Nếu tuần đầu nhiều SV báo “ngoài bán kính” dù đứng đúng chỗ, tăng `BAN_KINH_DIEM_DANH_M` lên 30 hoặc 40.
 
-## 4. Nhập danh sách sinh viên
+## 4. Mã lớp và sinh viên tự đăng ký
 
-Sheet `SinhVien`, mỗi dòng một SV: cột A **MSSV**, cột B **Họ tên**, cột C **Nhóm/Lớp**. Các cột còn lại app tự điền.
-
-- Đổi `MA_LOP` trong `CauHinh` cho mỗi đợt thực tập, gửi mã cho SV.
-- SV đổi điện thoại: chọn dòng SV, menu **BV TLS > Xóa thiết bị SV**.
-- SV đăng ký khuôn mặt sai (ví dụ lỡ đăng ký trên MSSV người khác): **BV TLS > Xóa khuôn mặt SV**.
+- Ô **MA_LOP** (sheet CauHinh) chứa các mã lớp, cách nhau dấu phẩy. Sinh viên thấy các mã này dưới dạng danh sách để **tích chọn** khi đăng ký.
+  - `BVTLS2026`: một mã chung.
+  - `SNA2026=Y6A, SNB2026=Y6B`: mỗi mã gắn với một nhóm. Sinh viên tự đăng ký bằng mã nào thì được xếp vào nhóm đó.
+- **Đăng ký lần đầu** (3 bước trên app): nhập họ và tên có dấu, MSSV, tích chọn mã lớp, đọc quy định, quét khuôn mặt. Khi quét xong, máy chủ tự thêm sinh viên vào sheet **SinhVien** (cột Ghi chú ghi “Tự đăng ký qua app”).
+- Sinh viên đổi máy hoặc cài lại app: nhập đúng họ tên, MSSV, mã lớp cũ để đăng nhập lại. Nếu đổi điện thoại, giảng viên phải xóa thiết bị cũ trước (menu BV TLS > Xóa thiết bị SV).
+- Muốn chỉ cho sinh viên có sẵn trong danh sách: đặt `CHO_SV_TU_DANG_KY` = FALSE và nhập trước danh sách vào sheet SinhVien (cột A MSSV, B Họ tên, C Nhóm/Lớp).
+- Một MSSV chỉ đăng ký được một lần, một khuôn mặt chỉ gắn với một MSSV, một điện thoại chỉ gắn với một sinh viên. Sai sót thì dùng menu **BV TLS > Xóa khuôn mặt SV** hoặc xóa dòng của sinh viên đó.
 
 ## 5. Đưa lên GitHub, tạo file APK và trang web
 

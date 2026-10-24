@@ -69,10 +69,15 @@ jobs:
           name: DiemDanh-BVTLS-apk
           path: dist/DiemDanh-BVTLS.apk
 
-      - name: Phát hành bản tải về (khi gắn tag v...)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Lấy số phiên bản app
+        run: echo "APP_VERSION=$(grep -oP 'versionName \"\K[^\"]+' android/app/build.gradle)" >> "$GITHUB_ENV"
+
+      - name: Phát hành bản tải về (tự động mỗi lần cập nhật nhánh main hoặc gắn tag)
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/DiemDanh-BVTLS.apk
-          name: Điểm danh ${{ github.ref_name }} – BV TLS
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', env.APP_VERSION) }}
+          target_commitish: ${{ github.sha }}
+          name: Điểm danh ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', env.APP_VERSION) }} – BV TLS
           body: App Android Điểm danh. Từ BV TLS – by Dr Huy - BV TLS.
+          make_latest: true
+          files: dist/DiemDanh-BVTLS.apk

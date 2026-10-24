@@ -12,7 +12,7 @@
  *  - Tài khoản giảng viên: xem tình hình sinh viên, gửi thông báo hoặc yêu cầu xác nhận có mặt đến sinh viên được chọn
  */
 
-var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.4.0' };
+var APP = { NAME: 'Điểm danh', BRAND: 'BV TLS', CREDIT: 'by Dr Huy - BV TLS', VERSION: '1.5.0' };
 var TZ = 'Asia/Ho_Chi_Minh';
 var SH = { CFG: 'CauHinh', SV: 'SinhVien', DD: 'DiemDanh', SK: 'SuKienViTri', HT: 'HienTai', GV: 'GiangVien', TB: 'ThongBao', CS: 'CoSo' };
 var PURPOSE = 'Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00';
@@ -174,7 +174,8 @@ function handle_(d) {
     switch (d.action) {
       case 'config': return json_({ ok: true, serverTime: Date.now(), config: publicConfig_(cfg_()) });
       case 'status': return json_(apiStatus_(d));
-      case 'classes': return json_({ ok: true, classes: classList_(cfg_()) });
+      case 'classes': return json_({ ok: true, classes: classList_(cfg_()), sites: sites_(cfg_()) });
+      case 'rebind': return json_(apiRebind_(d));
       case 'enroll': return json_(apiEnroll_(d));
       case 'checkin': return json_(apiCheckin_(d));
       case 'confirm': return json_(apiConfirm_(d));
@@ -758,7 +759,7 @@ function setWidths_(t, ws) { for (var i = 0; i < ws.length; i++) try { t.setColu
 function eventLabel_(code) {
   return ({
     ROI_VUNG: 'Rời vùng', QUAY_LAI: 'Quay lại', MAT_TIN_HIEU: 'Mất tín hiệu', CO_TIN_HIEU_LAI: 'Có tín hiệu lại',
-    GIA_LAP_VI_TRI: 'Giả lập vị trí', XN_GIANG_VIEN: 'Xác nhận theo yêu cầu GV', CO_APP_FAKE_GPS: 'Cài app fake GPS', NGHI_GIA_LAP: 'Nghi giả lập', MAY_ROOT: 'Máy đã root',
+    GIA_LAP_VI_TRI: 'Giả lập vị trí', DOI_THIET_BI: 'Đổi điện thoại', DOI_THIET_BI_LOI: 'Đổi điện thoại thất bại', XN_GIANG_VIEN: 'Xác nhận theo yêu cầu GV', CO_APP_FAKE_GPS: 'Cài app fake GPS', NGHI_GIA_LAP: 'Nghi giả lập', MAY_ROOT: 'Máy đã root',
     MAT_KHONG_KHOP: 'Mặt không khớp', MAT_GIONG_SV_KHAC: 'Mặt giống SV khác',
     SAI_THIET_BI: 'Sai thiết bị', THIET_BI_DUNG_CHUNG: 'Thiết bị dùng chung'
   })[code] || code;
@@ -1266,4 +1267,57 @@ function siteName_(c, code) {
   var list = sites_(c);
   for (var i = 0; i < list.length; i++) if (list[i].code === k) return list[i].name;
   return k || list[0].name;
+}
+
+
+/* ============================ ĐỔI ĐIỆN THOẠI ============================ */
+
+/** Sinh viên đổi điện thoại: đúng họ tên, MSSV, mã lớp và khuôn mặt khớp thì gắn sang điện thoại mới. */
+function apiRebind_(d) {
+  var c = cfg_(), now = new Date(), date = fmt_(now, 'yyyy-MM-dd');
+  var mssv = normId_(d.mssv);
+  var st = findStudent_(mssv);
+  if (!st) return { ok: false, msg: 'Không tìm thấy MSSV.' };
+  if (normName_(d.fullName) !== normName_(st.name)) return { ok: false, msg: 'Họ và tên không khớp với MSSV.' };
+  if (!classOk_(c, d.classCode, st)) return { ok: false, msg: 'Mã lớp không đúng.' };
+  if (!st.desc) return { ok: false, msg: 'Bạn chưa đăng ký khuôn mặt, hãy đăng ký như lần đầu.' };
+  if (!d.deviceId) return { ok: false, msg: 'Không đọc được mã thiết bị.' };
+  if (d.platform !== 'android' && d.platform !== 'ios-web') return { ok: false, msg: 'Thiết bị không hợp lệ.' };
+  if (!validDesc_(d.descriptor) || Number(d.faceCount) !== 1) return { ok: false, msg: 'Không đọc được khuôn mặt, thử lại.' };
+  if (!d.liveness) return { ok: false, msg: 'Chưa vượt qua kiểm tra người thật (nhắm mở mắt).' };
+  var all = allStudents_();
+  var own = euclid_(d.descriptor, st.desc), nearestOther = 9, nearestId = '';
+  for (var i = 0; i < all.length; i++) {
+    var o = all[i];
+    if (o.mssv === mssv) continue;
+    if (bool_(c.KHOA_1_THIET_BI) && o.device && o.device === d.deviceId) {
+      return { ok: false, msg: 'Điện thoại này đang gắn với MSSV ' + o.mssv + '. Mỗi sinh viên dùng điện thoại riêng.' };
+    }
+    if (o.desc) { var dd = euclid_(d.descriptor, o.desc); if (dd < nearestOther) { nearestOther = dd; nearestId = o.mssv; } }
+  }
+  if (own > num_(c.NGUONG_KHUON_MAT) || nearestOther < own) {
+    log_(date, mssv, st.name, 'DOI_THIET_BI_LOI', '', '', '', '', 'Khuôn mặt không khớp (độ lệch ' + own.toFixed(3) + (nearestOther < own ? ', gần MSSV ' + nearestId + ' hơn' : '') + ')');
+    return { ok: false, msg: 'Khuôn mặt không khớp với sinh viên ' + st.name + '. Đủ sáng, nhìn thẳng và thử lại, hoặc liên hệ giảng viên.' };
+  }
+  var usedBy = deviceUsedToday_(date, d.deviceId, mssv);
+  if (usedBy) return { ok: false, msg: 'Điện thoại này đã điểm danh cho MSSV ' + usedBy + ' hôm nay.' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = sheet_(SH.SV);
+    var oldDev = st.device;
+    sh.getRange(st.row, 7).setValue(d.deviceId);
+    var note = String(sh.getRange(st.row, 8).getValue() || '');
+    sh.getRange(st.row, 8).setValue((note ? note + ' | ' : '') + 'Đổi điện thoại ' + fmt_(now, 'dd/MM/yyyy HH:mm'));
+    var url = '';
+    if (d.photo) {
+      url = savePhoto_(d.photo, folderPath_(['Anh doi thiet bi']), date + '_' + fmt_(now, 'HHmmss') + '_' + mssv + '_' + slug_(st.name) + '.jpg',
+        'Xác minh đổi điện thoại – ' + st.name + ' (' + mssv + ') – ' + APP.BRAND).getUrl();
+    }
+    log_(date, mssv, st.name, 'DOI_THIET_BI', '', '', '', '', 'Thiết bị cũ ' + (oldDev || '(chưa có)') + ' → ' + d.deviceId +
+      ' | ' + (d.platform === 'android' ? 'Android' : 'iPhone') + ' | độ lệch mặt ' + own.toFixed(3) + (url ? ' | ' + url : ''));
+  } finally { lock.releaseLock(); }
+  var r = apiStatus_({ mssv: mssv, deviceId: d.deviceId });
+  r.msg = 'Đã chuyển sang điện thoại này.';
+  return r;
 }

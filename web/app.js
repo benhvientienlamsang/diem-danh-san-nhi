@@ -20,7 +20,7 @@
   const Http = plug('CapacitorHttp');
   const Device = plug('Device');
   const TZ = 'Asia/Ho_Chi_Minh';
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
 
   const S = {
     session: load('dd_session'),
@@ -103,7 +103,7 @@
   }
 
   /* ---------- cơ sở thực tập (nhiều bệnh viện) ---------- */
-  S.siteCode = load('dd_site') || '';
+  S.siteCode = (load('dd_session') || {}).site || load('dd_site') || '';
   S.sitePicked = !!S.siteCode;
   function siteList() {
     return (S.cfg.sites && S.cfg.sites.length) ? S.cfg.sites
@@ -118,7 +118,8 @@
     const list = siteList();
     const site = list.find(x => x.code === code) || list[0];
     S.siteCode = site.code;
-    if (manual) { S.sitePicked = true; save('dd_site', site.code); }
+    if (manual) { S.sitePicked = true; save('dd_site', site.code); if (S.session) { S.session.site = site.code; save('dd_session', S.session); } }
+    try { document.title = 'Điểm danh – ' + site.name; } catch (e) {}
     S.cfg.hospital = site.name; S.cfg.address = site.address; S.cfg.lat = site.lat; S.cfg.lng = site.lng;
     S.cfg.checkinRadius = site.r1; S.cfg.leaveRadius = site.r2;
     $('hospitalName').textContent = site.name;
@@ -141,7 +142,7 @@
         '<span>' + esc(x.name) + '<small>' + esc(x.address || '') + (dTxt ? ' · cách bạn ' + dTxt : '') + '</small></span></label>';
     }).join('');
     $('siteList').querySelectorAll('input[name="site"]').forEach(r => r.onchange = () => setSite(r.value, true));
-    $('siteHint').textContent = S.sitePicked ? 'Bạn đã tự chọn cơ sở.' : 'App tự chọn cơ sở gần bạn nhất. Có thể đổi nếu chọn sai.';
+    $('siteHint').textContent = 'Đã chọn khi đăng nhập. Hôm nay thực tập ở bệnh viện khác thì chọn lại trước khi điểm danh.';
   }
   function autoPickSite(l) {
     if (S.sitePicked || (S.today && S.today.checkin)) return;
@@ -224,10 +225,7 @@
   function route() {
     const st = S.student;
     $('btnLogout').hidden = false;
-    if (!st.deviceMatch) {
-      fail('Điện thoại chưa được cấp phép', 'MSSV ' + st.mssv + ' đã gắn với một điện thoại khác. Mỗi sinh viên chỉ dùng 1 điện thoại. Liên hệ quản trị BV TLS nếu bạn đổi máy.');
-      return;
-    }
+    if (!st.deviceMatch) { showRebind(); return; }
     if (!S.session.consent) { fill('js-who', st.name + ' · ' + st.mssv); show('scr-consent'); return; }
     if (!st.enrolled) { fill('js-who', st.name + ' · MSSV ' + st.mssv); show('scr-enroll'); return; }
     renderHome();
@@ -242,11 +240,15 @@
     const classCode = picked ? picked.value : '';
     if (!fullName || !mssv) { setMsg('loginMsg', 'Nhập đủ họ và tên, MSSV.'); return; }
     if (!classCode) { setMsg('loginMsg', 'Tích chọn mã lớp của bạn.'); return; }
+    const sitePicked = document.querySelector('input[name="loginSite"]:checked');
+    if (!sitePicked) { setMsg('loginMsg', 'Chọn bệnh viện điểm danh.'); return; }
+    const changeDevice = $('cbNewPhone').checked;
     setMsg('loginMsg', 'Đang kiểm tra…', true);
     try {
       const r = await api('status', { mssv, classCode, fullName });
       if (!r.ok) { setMsg('loginMsg', r.msg); return; }
-      S.session = { mssv, classCode, fullName, consent: false }; save('dd_session', S.session);
+      S.session = { mssv, classCode, fullName, site: sitePicked.value, changeDevice, consent: changeDevice && r.student.enrolled }; save('dd_session', S.session);
+      setSite(sitePicked.value, true);
       S.student = r.student; S.today = r.today; S.slots = r.today.slots || [];
     if (r.inbox) handleInbox(r.inbox);
       setMsg('loginMsg', ''); route();
@@ -259,6 +261,7 @@
     box.innerHTML = '<p class="muted">Đang tải danh sách mã lớp…</p>';
     try {
       const r = await api('classes');
+      renderLoginSites((r && r.sites) || siteList());
       const list = (r && r.classes) || [];
       if (!list.length) { box.innerHTML = '<p class="form-msg">Giảng viên chưa nhập mã lớp. Liên hệ giảng viên.</p>'; return; }
       box.innerHTML = list.map((c, i) => '<label class="class-opt"><input type="radio" name="classCode" value="' + esc(c.code) + '"' + (list.length === 1 ? ' checked' : '') + '>' +
@@ -268,6 +271,59 @@
       $('btnReloadClasses').onclick = loadClasses;
     }
   }
+
+  function renderLoginSites(list) {
+    if (list && list.length) S.cfg.sites = list;
+    const box = $('loginSiteList');
+    const cur = (S.session && S.session.site) || load('dd_site') || '';
+    box.innerHTML = siteList().map(x => '<label class="class-opt"><input type="radio" name="loginSite" value="' + esc(x.code) + '"' +
+      (x.code === cur || siteList().length === 1 ? ' checked' : '') + '><span>' + esc(x.name) + '<small>' + esc(x.address || '') + '</small></span></label>').join('');
+    box.querySelectorAll('input[name="loginSite"]').forEach(r => r.onchange = () => setSite(r.value, true));
+    const picked = box.querySelector('input[name="loginSite"]:checked');
+    if (picked) setSite(picked.value, true); else { $('hospitalName').textContent = 'Chọn bệnh viện để bắt đầu'; }
+  }
+
+  /* ---------- đổi điện thoại ---------- */
+  function showRebind() {
+    const st = S.student;
+    fill('js-who', st.name + ' · MSSV ' + st.mssv);
+    setMsg('rebindMsg', '');
+    if (S.session.changeDevice) {
+      $('rebindTitle').textContent = 'Xác minh khuôn mặt';
+      $('rebindBody').innerHTML = '<p>Tài khoản này đang gắn với điện thoại cũ. Quét khuôn mặt để xác minh đúng là bạn, app sẽ chuyển tài khoản sang điện thoại này.</p>' +
+        '<ul class="dash"><li>Đứng nơi đủ sáng, nhìn thẳng camera, khi được nhắc thì nhắm mắt rồi mở ra.</li><li>Điện thoại cũ sẽ không dùng được nữa. Lần đổi máy được ghi vào báo cáo gửi giảng viên.</li></ul>';
+      $('btnRebind').hidden = false;
+    } else {
+      $('rebindTitle').textContent = 'Điện thoại chưa được cấp phép';
+      $('rebindBody').innerHTML = '<p>MSSV ' + esc(st.mssv) + ' đang gắn với một điện thoại khác. Nếu bạn đã đổi sang điện thoại mới, quay lại màn hình đăng nhập, tích ô <b>“Tôi đã đổi sang điện thoại mới”</b> rồi đăng nhập lại.</p>';
+      $('btnRebind').hidden = true;
+    }
+    show('scr-rebind');
+  }
+  $('btnRebindBack').addEventListener('click', () => {
+    const keep = S.session || {};
+    S.session = null; save('dd_session', null); S.student = null;
+    $('inName').value = keep.fullName || ''; $('inMssv').value = keep.mssv || ''; $('cbNewPhone').checked = true;
+    show('scr-login');
+  });
+  $('btnRebind').addEventListener('click', async () => {
+    if (S.busy) return;
+    S.busy = true; setMsg('rebindMsg', '');
+    try {
+      const f = await scanFace({ title: 'Xác minh đổi điện thoại', samples: 2 });
+      if (!f) return;
+      const t = vn();
+      const photo = stamp(f.canvas, ['XÁC MINH ĐỔI ĐIỆN THOẠI', S.student.name + ' · ' + S.student.mssv, t.dmy + ' ' + t.hms + ' (GMT+7)']);
+      setMsg('rebindMsg', 'Đang gửi…', true);
+      const r = await api('rebind', { mssv: S.session.mssv, fullName: S.session.fullName, classCode: S.session.classCode,
+        descriptor: f.descriptor, faceCount: 1, liveness: true, photo });
+      if (!r.ok) { setMsg('rebindMsg', r.msg); return; }
+      S.session.changeDevice = false; save('dd_session', S.session);
+      S.student = r.student; S.today = r.today; S.slots = r.today.slots || [];
+      toast(r.msg, 5000); route();
+    } catch (e) { setMsg('rebindMsg', e.message || String(e)); }
+    finally { S.busy = false; }
+  });
 
   $('cbConsent').addEventListener('change', e => { $('btnConsent').disabled = !e.target.checked; });
   $('btnConsent').addEventListener('click', () => { S.session.consent = true; save('dd_session', S.session); route(); });
@@ -420,7 +476,7 @@
   function onLoc(l) {
     S.loc = l;
     S.samples.push(l); if (S.samples.length > 30) S.samples.shift();
-    autoPickSite(l);
+    if (!(S.today && S.today.checkin) && (!renderSites._t || Date.now() - renderSites._t > 15000)) { renderSites._t = Date.now(); renderSites(); }
     drawRadar(l);
     if (l.simulated) showFake('Phát hiện vị trí giả lập trên điện thoại. Tắt ứng dụng fake GPS, nếu không bạn sẽ bị ghi vi phạm.');
     if (S.tracking) maybeSend(l);
@@ -569,7 +625,7 @@
     await stopTracking('');
     try { localStorage.removeItem('dd_session'); Object.keys(localStorage).filter(k => k.indexOf('dd_photo_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
     S.session = null; S.student = null; S.today = null; S.slots = [];
-    $('inName').value = ''; $('inMssv').value = ''; $('classList').innerHTML = '';
+    $('inName').value = ''; $('inMssv').value = ''; $('classList').innerHTML = ''; $('cbNewPhone').checked = false;
     S.inbox = []; renderInbox(); $('inNote').value = ''; setMsg('loginMsg', '');
     $('cbConsent').checked = false; $('btnConsent').disabled = true;
     $('btnLogout').hidden = true;

@@ -76,7 +76,9 @@ Sheet **CoSo** (tạo khi chạy hàm `setup`) liệt kê các bệnh viện th�
   - `BVTLS2026`: một mã chung.
   - `SNA2026=Y6A, SNB2026=Y6B`: mỗi mã gắn với một nhóm. Sinh viên tự đăng ký bằng mã nào thì được xếp vào nhóm đó.
 - **Đăng ký lần đầu** (3 bước trên app): nhập họ và tên có dấu, MSSV, tích chọn mã lớp, đọc quy định, quét khuôn mặt. Khi quét xong, máy chủ tự thêm sinh viên vào sheet **SinhVien** (cột Ghi chú ghi “Tự đăng ký qua app”).
-- Sinh viên đổi máy hoặc cài lại app: nhập đúng họ tên, MSSV, mã lớp cũ để đăng nhập lại. Nếu đổi điện thoại, giảng viên phải xóa thiết bị cũ trước (menu BV TLS > Xóa thiết bị SV).
+- Màn hình đăng nhập: sinh viên **chọn bệnh viện điểm danh** trước (tiêu đề app đổi theo bệnh viện), rồi nhập họ tên, MSSV, tích chọn mã lớp.
+- Cài lại app trên cùng điện thoại: nhập đúng họ tên, MSSV, mã lớp cũ.
+- **Đổi điện thoại mới**: sinh viên tích ô **“Tôi đã đổi sang điện thoại mới”** khi đăng nhập, sau đó quét khuôn mặt (có nhắm mở mắt). Khuôn mặt khớp với khuôn mặt đã đăng ký thì tài khoản chuyển sang máy mới, máy cũ không dùng được nữa. Sự kiện “Đổi điện thoại” (kèm ảnh xác minh trong thư mục Drive `Anh doi thiet bi`) được ghi vào sheet SuKienViTri và báo cáo. Khuôn mặt không khớp thì bị từ chối và ghi “Đổi điện thoại thất bại”. Giảng viên vẫn có thể xóa thiết bị bằng menu BV TLS > Xóa thiết bị SV nếu cần.
 - Muốn chỉ cho sinh viên có sẵn trong danh sách: đặt `CHO_SV_TU_DANG_KY` = FALSE và nhập trước danh sách vào sheet SinhVien (cột A MSSV, B Họ tên, C Nhóm/Lớp).
 - Một MSSV chỉ đăng ký được một lần, một khuôn mặt chỉ gắn với một MSSV, một điện thoại chỉ gắn với một sinh viên. Sai sót thì dùng menu **BV TLS > Xóa khuôn mặt SV** hoặc xóa dòng của sinh viên đó.
 

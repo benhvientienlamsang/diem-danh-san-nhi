@@ -73,6 +73,10 @@
       </div>
       <form class="card" id="formLogin" autocomplete="off">
         <p class="eyebrow">Bước 1/3 · Thông tin sinh viên</p>
+        <div class="field">
+          <span class="field-label">Bệnh viện điểm danh</span>
+          <div class="class-list" id="loginSiteList"><p class="muted">Đang tải danh sách bệnh viện…</p></div>
+        </div>
         <label>Họ và tên
           <input id="inName" autocapitalize="words" required placeholder="Ghi đầy đủ, có dấu: Nguyễn Văn An">
         </label>
@@ -83,6 +87,7 @@
           <span class="field-label">Chọn mã lớp</span>
           <div class="class-list" id="classList"><p class="muted">Đang tải danh sách mã lớp…</p></div>
         </div>
+        <label class="check"><input type="checkbox" id="cbNewPhone"> Tôi đã đổi sang điện thoại mới (đã đăng ký khuôn mặt ở máy cũ)</label>
         <p class="form-msg" id="loginMsg"></p>
         <button class="btn" type="submit">Tiếp tục</button>
       </form>
@@ -156,6 +161,19 @@
       <div class="card">
         <h3>Đã gửi hôm nay</h3>
         <div id="lecMsgs"></div>
+      </div>
+    </section>
+
+    <!-- Đổi điện thoại -->
+    <section class="screen" id="scr-rebind" hidden>
+      <div class="card">
+        <p class="eyebrow">Đổi điện thoại</p>
+        <h2 id="rebindTitle">Xác minh khuôn mặt</h2>
+        <p class="who js-who"></p>
+        <div id="rebindBody"></div>
+        <p class="form-msg" id="rebindMsg"></p>
+        <button class="btn" id="btnRebind">Quét khuôn mặt để chuyển sang máy này</button>
+        <button class="btn ghost" id="btnRebindBack" style="margin-top:10px">Quay lại đăng nhập</button>
       </div>
     </section>
 
@@ -242,7 +260,7 @@
       </div>
 
       <div class="card" id="cardSite" hidden>
-        <h3>Cơ sở thực tập hôm nay</h3>
+        <h3>Bệnh viện điểm danh hôm nay</h3>
         <div class="class-list" id="siteList"></div>
         <p class="hint" id="siteHint"></p>
       </div>

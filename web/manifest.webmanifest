@@ -1,0 +1,17 @@
+{
+  "name": "Điểm danh – BV TLS",
+  "short_name": "Điểm danh",
+  "description": "Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00. Từ BV TLS, by Dr Huy - BV TLS.",
+  "lang": "vi",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f2ec",
+  "theme_color": "#b3261e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

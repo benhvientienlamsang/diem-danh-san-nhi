@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#b3261e">
+  <meta name="author" content="Dr Huy - BV TLS">
+  <meta name="description" content="Điểm danh – kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00. Từ BV TLS, by Dr Huy - BV TLS.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Điểm danh">
+  <title>Điểm danh</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="icons/icon-192.png" alt="BV TLS">
+      <div class="brand-text">
+        <strong>Điểm danh</strong>
+        <small id="hospitalName">Bệnh viện Sản Nhi Kiên Giang</small>
+      </div>
+    </div>
+    <span class="from">Từ BV TLS</span>
+  </header>
+
+  <main id="app">
+    <section class="screen" id="scr-loading">
+      <div class="card center">
+        <div class="spinner"></div>
+        <p id="loadingText">Đang kết nối máy chủ…</p>
+      </div>
+    </section>
+
+    <section class="screen" id="scr-error" hidden>
+      <div class="card">
+        <h2 id="errorTitle">Không kết nối được</h2>
+        <p id="errorText" class="muted"></p>
+        <button class="btn" id="btnRetry">Thử lại</button>
+      </div>
+    </section>
+
+    <!-- Chặn thiết bị không hợp lệ (Android dùng web, máy tính) -->
+    <section class="screen" id="scr-gate" hidden>
+      <div class="card">
+        <p class="eyebrow">Thiết bị chưa hợp lệ</p>
+        <h2 id="gateTitle">Dùng đúng ứng dụng</h2>
+        <div id="gateBody"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="scr-login" hidden>
+      <div class="hero">
+        <p class="eyebrow">Từ BV TLS</p>
+        <h1>Điểm danh lâm sàng</h1>
+        <p class="muted js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</p>
+      </div>
+      <form class="card" id="formLogin" autocomplete="off">
+        <label>MSSV
+          <input id="inMssv" autocapitalize="characters" required placeholder="Ví dụ: 2101001">
+        </label>
+        <label>Mã lớp
+          <input id="inClass" autocapitalize="characters" required placeholder="Mã do BV TLS cấp">
+        </label>
+        <p class="form-msg" id="loginMsg"></p>
+        <button class="btn" type="submit">Tiếp tục</button>
+      </form>
+    </section>
+
+    <section class="screen" id="scr-consent" hidden>
+      <div class="card">
+        <h2>Quy định và đồng ý</h2>
+        <p><b class="js-purpose">Kiểm soát sinh viên có mặt tại khu vực lâm sàng từ 07:00 đến 11:00.</b></p>
+        <ul class="dash">
+          <li>Điểm danh tại <b class="js-hospital">Bệnh viện Sản Nhi Kiên Giang</b>, trong bán kính <b class="js-r1">20</b> m, trước <b class="js-deadline">07:00</b> mới tính đúng giờ.</li>
+          <li>Từ lúc điểm danh đến <b class="js-end">11:00</b>, ứng dụng ghi nhận vị trí. Ra xa quá <b class="js-r2">60</b> m sẽ bị ghi “rời vùng” vào báo cáo.</li>
+          <li>Trong ca có các mốc xác nhận khuôn mặt <b class="js-slots">08:30, 09:30, 10:30</b>, mỗi mốc mở <b class="js-win">15</b> phút.</li>
+          <li>Ứng dụng giả lập vị trí (fake GPS) bị chặn và ghi nhận vi phạm.</li>
+          <li>Ảnh khuôn mặt, vị trí và ghi chú được lưu trên Google Drive của BV TLS, chỉ phục vụ quản lý thực tập. Sau <b class="js-end">11:00</b> ứng dụng không theo dõi vị trí.</li>
+        </ul>
+        <label class="check"><input type="checkbox" id="cbConsent"> Tôi đã đọc và đồng ý</label>
+        <button class="btn" id="btnConsent" disabled>Đồng ý và tiếp tục</button>
+      </div>
+    </section>
+
+    <section class="screen" id="scr-enroll" hidden>
+      <div class="card">
+        <p class="eyebrow">Làm một lần duy nhất</p>
+        <h2>Đăng ký khuôn mặt</h2>
+        <p class="who js-who"></p>
+        <ul class="dash">
+          <li>Đứng nơi đủ sáng, không đeo khẩu trang, kính râm.</li>
+          <li>Nhìn thẳng camera, chỉ một mình bạn trong khung hình.</li>
+          <li>Khi được nhắc, nhắm mắt khoảng 1 giây rồi mở ra.</li>
+        </ul>
+        <p class="form-msg" id="enrollMsg"></p>
+        <button class="btn" id="btnEnroll">Mở camera và đăng ký</button>
+      </div>
+    </section>
+
+    <section class="screen" id="scr-home" hidden>
+      <div class="card student">
+        <div>
+          <p class="eyebrow">Sinh viên</p>
+          <h2 class="js-name"></h2>
+          <p class="muted js-meta"></p>
+        </div>
+        <div class="clock">
+          <div id="clock">--:--:--</div>
+          <small id="dateText"></small>
+        </div>
+      </div>
+
+      <div class="deadline" id="deadline"></div>
+      <div class="alert" id="fakeAlert" hidden></div>
+
+      <div class="card" id="cardLocation">
+        <div class="row-between">
+          <h3>Vị trí của bạn</h3>
+          <span class="pill" id="locPill">Đang định vị…</span>
+        </div>
+        <div class="geo">
+          <svg id="radar" viewBox="0 0 160 160" aria-hidden="true">
+            <circle cx="80" cy="80" r="74" class="ring-out"/>
+            <circle cx="80" cy="80" r="24.7" class="ring-in"/>
+            <line x1="80" y1="8" x2="80" y2="152" class="axis"/>
+            <line x1="8" y1="80" x2="152" y2="80" class="axis"/>
+            <circle cx="80" cy="80" r="3" class="center"/>
+            <circle id="radarAcc" cx="80" cy="80" r="0" class="acc"/>
+            <circle id="radarDot" cx="80" cy="80" r="6" class="dot"/>
+            <text x="80" y="20" class="lbl" id="lblOut">60 m</text>
+            <text x="80" y="62" class="lbl" id="lblIn">20 m</text>
+          </svg>
+          <div class="geo-text">
+            <p class="big" id="distText">– m</p>
+            <p class="muted" id="accText">Đang chờ tín hiệu GPS</p>
+            <button class="btn ghost small" id="btnRefreshLoc">Định vị lại</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="cardCheckin" hidden>
+        <h3>Điểm danh hôm nay</h3>
+        <label>Ghi chú (không bắt buộc)
+          <textarea id="inNote" rows="2" maxlength="500" placeholder="Ví dụ: trực đêm qua, đổi khoa, đến trễ do…"></textarea>
+        </label>
+        <p class="form-msg" id="checkinMsg"></p>
+        <button class="btn big" id="btnCheckin">Quét khuôn mặt và điểm danh</button>
+        <p class="hint">Phải ở trong bán kính <b class="js-r1">20</b> m. Điểm danh trước <b class="js-deadline">07:00</b> được tính đúng giờ.</p>
+      </div>
+
+      <div class="card done" id="cardDone" hidden>
+        <div class="row-between">
+          <h3>Đã điểm danh</h3>
+          <span class="pill ok" id="donePill">Đúng giờ</span>
+        </div>
+        <p class="big" id="doneTime">--:--</p>
+        <img id="donePhoto" alt="Ảnh điểm danh" hidden>
+      </div>
+
+      <div class="card" id="cardSlots" hidden>
+        <div class="row-between">
+          <h3>Xác nhận giữa ca</h3>
+          <span class="pill" id="slotPill"></span>
+        </div>
+        <div class="slots" id="slotList"></div>
+        <p class="form-msg" id="confirmMsg"></p>
+        <button class="btn" id="btnConfirm" hidden>Xác nhận có mặt ngay</button>
+        <p class="hint" id="slotHint"></p>
+      </div>
+
+      <div class="card" id="cardTrack" hidden>
+        <div class="row-between">
+          <h3>Theo dõi trong ca</h3>
+          <span class="pill" id="trackPill">Tắt</span>
+        </div>
+        <p class="muted" id="trackText"></p>
+        <button class="btn ghost small" id="btnAppSettings" hidden>Mở cài đặt ứng dụng</button>
+      </div>
+
+      <div class="alert" id="leaveAlert" hidden></div>
+    </section>
+  </main>
+
+  <div class="cam" id="cam" hidden>
+    <div class="cam-top">
+      <button class="icon-btn" id="btnCamClose" aria-label="Đóng">✕</button>
+      <span id="camTitle">Quét khuôn mặt</span>
+      <img class="logo small" src="icons/icon-192.png" alt="BV TLS">
+    </div>
+    <div class="cam-view">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="oval" id="oval"></div>
+    </div>
+    <div class="cam-bottom">
+      <p id="camStep" class="cam-step">Đang tải mô hình nhận diện…</p>
+      <div class="progress"><span id="camProgress"></span></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="review" hidden>
+    <div class="sheet-body">
+      <h3 id="reviewTitle">Kiểm tra ảnh điểm danh</h3>
+      <img id="reviewImg" alt="Ảnh chụp">
+      <p class="muted" id="reviewNote"></p>
+      <p class="form-msg" id="reviewMsg"></p>
+      <div class="btn-row">
+        <button class="btn ghost" id="btnRetake">Chụp lại</button>
+        <button class="btn" id="btnSubmit">Gửi</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <footer class="foot">
+    <span>Từ BV TLS</span><span class="sep">·</span><span>by Dr Huy - BV TLS</span>
+    <span class="ver" id="ver"></span>
+  </footer>
+
+  <canvas id="work" hidden></canvas>
+  <script src="config.js"></script>
+  <script src="lib/face-api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "appId": "vn.bvtls.diemdanh",
+  "appName": "Điểm danh",
+  "webDir": "web",
+  "android": {
+    "useLegacyBridge": true,
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_bvtls",
+      "iconColor": "#C62828"
+    }
+  }
+}

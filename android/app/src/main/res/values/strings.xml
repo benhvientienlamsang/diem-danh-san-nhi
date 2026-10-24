@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Điểm danh</string>
+    <string name="title_activity_main">Điểm danh</string>
+    <string name="package_name">vn.bvtls.diemdanh</string>
+    <string name="custom_url_scheme">vn.bvtls.diemdanh</string>
+    <string name="capacitor_background_geolocation_notification_channel_name">Theo dõi có mặt trong ca (BV TLS)</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_stat_bvtls</string>
+</resources>
